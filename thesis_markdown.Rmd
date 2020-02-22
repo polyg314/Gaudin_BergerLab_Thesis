@@ -10,6 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 source('thesis_functions.R')
 library(ggplot2)
 library(tidyverse)
+library(data.table)
 ```
 
 ##Normal Table HET SNP Frequency Analysis
@@ -48,6 +49,9 @@ print(nrow(cov_df))## print number of SNPs
 print(ggplot(cov_df, aes(x=Average_coverage, y=Average_vaf)) + xlab("SNP Site Average Coverage") + ylab("Mean VAF for SNP") + geom_point() + geom_vline(aes(xintercept=250), colour="#BB0000", linetype="dashed"))
 
 ```
+
+##Figure 9. Histograms showing distributions of 20 targeted SNPs within EGFR (left) and BRCA1 (right) genes in normal samples (n = 47). 
+
 
 ##Combining individual snp-pileup dat files to form normal and tumor input files (with on and off target reads)
 ####Necessary for large .vaf files with many samples 
@@ -89,55 +93,6 @@ saveRDS(complete_vaf_df,"../Gaudin_thesis_data/cdf_250_25_75.rds")
 complete_vaf_df <- readRDS("../Gaudin_thesis_data/cdf_250_25_75.rds")
 complete_vaf_df
 ```
-####Figure 3. Boxplot distributions of mean heterozygous SNP VAF absolute Z-scores for normal pool 
-```{r}
-ggplot(complete_vaf_df, aes(x = pool, y = VAF_Z_Score)) + geom_boxplot() + xlab("Pool") + ylab("Mean Absolute heterozygous SNP VAF Z-score")
-```
-####Figure 4. Histograms showing distributions of mean heterozygous SNP VAF absolute Z-scores for normal pool
-```{r}
-ggplot(complete_vaf_df, aes(x=VAF_Z_Score, fill=pool, color=pool), bins = 90) + geom_histogram(position="identity", alpha=0.5) + theme(legend.position="top") + xlab("Average SNP VAF Z-Score") + ylab("Sample Count")
-
-ggplot(complete_vaf_df, aes(x=VAF_Z_Score, fill=pool, color=pool), bins = 90) + geom_histogram(position="identity", alpha=0.5) +
-  theme(legend.position="top") + xlim(0.5,2) + xlab("Average SNP VAF Z-Score") + ylab("Sample Count")
-```
-
-######Load estimated ctDNA fraction data
-```{r}
-clin_mut_percent_table <- readRDS("../Gaudin_thesis_data/clin_ctDNA_est_table.rds")
-clin_sample_key_table <- readRDS("../Gaudin_thesis_data/key_reference.rds") ##data containing other sample identifiers 
-complete_vaf_df$sample_names <- str_replace(complete_vaf_df$sample_names, "_DONOR", "-DONOR") ##adjust to fit sample names in other files
-cnv_table <- read.table("../Gaudin_thesis_data/data_CNA.txt", header = TRUE) ##table showing called cnvs
-####formatting for merging######
-cnv_table[5,which(cnv_table[5,][2:ncol(cnv_table)] > 0) + 1]
-colnames(cnv_table) <- str_replace(colnames(cnv_table), "[.]", "-")
-colnames(cnv_table) <- str_replace(colnames(cnv_table), "[.]", "-")
-colnames(cnv_table) <- str_replace(colnames(cnv_table), "[.]", "-")
-row.names(cnv_table) <- cnv_table$Hugo_Symbol
-cnv_table <- cnv_table[,-c(1)]
-cnv_table <- t(cnv_table)
-cnv_table <- data.frame(cnv_table) ##convert from atomic vector
-###############################
-egfr_cnv <- data.frame(Tumor_Sample_Barcode = row.names(cnv_table), egfr_cn = cnv_table$EGFR)
-all_data_table <- merge(clin_mut_percent_table, egfr_cnv, all = TRUE)
-all_data_table$mean_AF[is.na(all_data_table$mean_AF)] <- 0 
-all_data_table  <- merge(all_data_table, clin_sample_key_table, by.x = "Tumor_Sample_Barcode", by.y = "id_1") ##id_1 = tumor sample barcode, id_2 == sample name
-all_data_table <- merge(complete_vaf_df,all_data_table,by.x = "sample_names", by.y = "id_2", all.x = TRUE)
-all_data_table$mean_AF[is.na(all_data_table$mean_AF)] <- 0 
-all_data_table
-```
-
-######Figure 5. Scatter plots showing distributions of mean heterozygous SNP VAF absolute Z-scores for normal pool 
-```{r}
-p <- ggplot() 
-p <- p + geom_point(data = clin_total_table[clin_total_table$pool == "tumor",], aes(x=mean_AF, y=abs_frag_z_score,color=pool),alpha = 0.5)
-p <- p + geom_point(data = clin_total_table[clin_total_table$pool == "normal",], aes(x=mean_AF, y=abs_frag_z_score,color=pool),alpha = 0.5)
-p <- p + xlab("Estimated ctDNA fraction") + ylab("Mean Fragment Length Z-score")
-p
-g <- p + xlim(0,0.2) + ylim(0.1,3)
-g
-
-```
-
 
 ```{r}
 gene_table <- read.table("GENES_chrom_start_stop.txt", header=TRUE)
@@ -154,7 +109,222 @@ saveRDS(gene_z_df,"../Gaudin_thesis_data/clin_gene_z.rds")
 saveRDS(gene_counts_df,"../Gaudin_thesis_data/clin_gene_counts.rds")
 ```
 
+```{r eval = FALSE}
+
+sample_names <- read.table("../Gaudin_thesis_data/nova_clin_names.txt")$V1
+sample_files <- read.table("../Gaudin_thesis_data/nova_clin_tlen_paths.txt")$V1
+
+for(i in 1:length(sample_files)){
+  frag_lengths <- read.table(as.character(sample_files[i]))$V1
+  if(i == 1){
+    nt_frags_binsize_5 <- bin_fragments(frag_lengths,5,1,600,as.character(sample_names[i]))
+  }else{
+    nt_frags_binsize_5 <- merge(nt_frags_binsize_5,bin_fragments(frag_lengths,5,1,600,sample_names[i]), by=c('start','end'))
+  }
+  print(i)
+}
+
+saveRDS(nt_frags_binsize_5,"../Gaudin_thesis_data/nt_clin_frags_binsize_5.rds")
+```
+
+```{r}
+frag_table <- readRDS("../Gaudin_thesis_data/nt_clin_frags_binsize_5.rds")
+frag_table$start <- paste("s",frag_table$start,"_",frag_table$end,sep="")
+frag_table_starts_ends <- frag_table$start
+frag_table <- frag_table[,-c(1,2)]
+frag_table <- t(frag_table)
+colnames(frag_table) <- frag_table_starts_ends 
+frag_table <- as.data.frame(frag_table)
+frag_table <- frag_table[,-c(ncol(frag_table))]
+frag_table$sample_names <- row.names(frag_table)
+frag_table <- normalize_frag_table(frag_table)
+frag_table <- frag_table[,c(c(26:31),c(35:40),c(51:75))] #bins between 125 - 155, 170 - 200, 250 - 375 
+frag_table_normal <- frag_table[c(1:47),]
+frag_table_clin <- frag_table[c(48:nrow(frag_table)),]
+frag_table_normal$sample_names = rownames(frag_table_normal)
+frag_table_clin$sample_names = rownames(frag_table_clin)
+frag_avg_z_scores <- calculate_frag_z_scores(frag_table_clin,frag_table_normal)
+saveRDS(frag_avg_z_scores,"../Gaudin_thesis_data/clin_frag_z_scores_5.rds")
+```
+
+######Load data and merge tables 
+```{r}
+clin_mut_percent_table <- readRDS("../Gaudin_thesis_data/clin_ctDNA_est_table.rds")
+clin_sample_key_table <- readRDS("../Gaudin_thesis_data/key_reference.rds") ##data containing other sample identifiers 
+complete_vaf_df$sample_names <- str_replace(complete_vaf_df$sample_names, "_DONOR", "-DONOR") ##adjust to fit sample names in other files
+cnv_table <- read.table("../Gaudin_thesis_data/data_CNA.txt", header = TRUE) ##table showing called cnvs
+####formatting for merging######
+colnames(cnv_table) <- str_replace_all(colnames(cnv_table), "[.]", "-")
+row.names(cnv_table) <- cnv_table$Hugo_Symbol
+cnv_table <- cnv_table[,-c(1)]
+cnv_table <- t(cnv_table)
+cnv_table <- data.frame(cnv_table) ##convert from atomic vector
+##egfr flagged mutaions from cbio
+egfr_cnv <- data.frame(Tumor_Sample_Barcode = row.names(cnv_table), egfr_cn = cnv_table$EGFR)
+all_data_table <- merge(clin_mut_percent_table, egfr_cnv, all = TRUE)
+all_data_table$mean_AF[is.na(all_data_table$mean_AF)] <- 0 
+all_data_table  <- merge(all_data_table, clin_sample_key_table, by.x = "Tumor_Sample_Barcode", by.y = "id_1") ##id_1 = tumor sample barcode, id_2 == sample name
+all_data_table <- merge(complete_vaf_df,all_data_table,by.x = "sample_names", by.y = "id_2", all.x = TRUE)
+all_data_table$mean_AF[is.na(all_data_table$mean_AF)] <- 0 
+frag_avg_z_scores$sample_names <- str_replace(frag_avg_z_scores$sample_names, "_DONOR","-DONOR")
+all_data_table <- clin_total_table <- merge(all_data_table,frag_avg_z_scores,by = "sample_names")
+all_data_table <- all_data_table[-c(which(all_data_table$pool == "tumor" & is.na(all_data_table$Tumor_Sample_Barcode))),] ##remove tumor samples (4) which don't have egfr or barcode data
+##add clinical patient IDs
+patient_ids <- all_data_table$Tumor_Sample_Barcode 
+patient_ids <-str_replace_all(patient_ids, "-T.*", "")
+all_data_table$patient_ids <- patient_ids
+##add egfr gene specific Z scores
+egfr_z_scores <- data.frame(sample_names = gene_z_df$sample_name, egfr_z_score = gene_z_df$EGFR, egfr_het_SNP_count = gene_counts_df$EGFR) 
+all_data_table <- merge(all_data_table, egfr_z_scores, by.x = "sample_names", all.x = TRUE)
+all_data_table
+#gene_counts_df <- gene_specific_z_scores[[2]]
+```
+
+
+```{r}
+##mark samples with same patient id that show copy number flagged in some samples but not others (-1 means flagged for CNV in other patient samples)
+updated_egfr_cn <- c()
+for(i in 1:nrow(all_data_table)){
+  if(is.na(all_data_table$egfr_cn[i])){
+    updated_egfr_cn <- c(updated_egfr_cn,NA)
+  }
+  else{
+    if(all_data_table$egfr_cn[i] == 2){
+      #print("hi")
+      updated_egfr_cn <- c(updated_egfr_cn, 2)
+    }
+    else{
+      if(sum(all_data_table$egfr_cn[which(all_data_table$patient_ids == all_data_table$patient_ids[i])]) > 0){
+        updated_egfr_cn <- c(updated_egfr_cn, -1)
+      }
+      else{
+        updated_egfr_cn <- c(updated_egfr_cn, 0)
+      }
+    } 
+  }
+}
+all_data_table$updated_egfr_cn <- updated_egfr_cn
+```
+####Figure 3. Boxplot distributions of mean heterozygous SNP VAF absolute Z-scores for normal pool 
+```{r}
+ggplot(all_data_table, aes(x = pool, y = VAF_Z_Score)) + geom_boxplot() + xlab("Pool") + ylab("Mean Absolute heterozygous SNP VAF Z-score")
+```
+####Figure 4. Histograms showing distributions of mean heterozygous SNP VAF absolute Z-scores for normal pool
+```{r}
+ggplot(all_data_table, aes(x=VAF_Z_Score, fill=pool, color=pool), bins = 90) + geom_histogram(position="identity", alpha=0.5) + theme(legend.position="top") + xlab("Average SNP VAF Z-Score") + ylab("Sample Count")
+
+ggplot(all_data_table, aes(x=VAF_Z_Score, fill=pool, color=pool), bins = 90) + geom_histogram(position="identity", alpha=0.5) +
+  theme(legend.position="top") + xlim(0.5,2) + xlab("Average SNP VAF Z-Score") + ylab("Sample Count")
+```
+######Figure 5. Scatter plots showing distributions of mean heterozygous SNP VAF absolute Z-scores for normal pool 
+```{r}
+p <- ggplot() 
+p <- p + geom_point(data = all_data_table[clin_total_table$pool == "tumor",], aes(x=mean_AF, y=abs_frag_z_score,color=pool),alpha = 0.5)
+p <- p + geom_point(data = all_data_table[clin_total_table$pool == "normal",], aes(x=mean_AF, y=abs_frag_z_score,color=pool),alpha = 0.5)
+p <- p + xlab("Estimated ctDNA fraction") + ylab("Mean Fragment Length Z-score")
+p
+g <- p + xlim(0,0.2) + ylim(0.1,3)
+g
+```
+
+###Figure 6. Receiver operator characteristic curves for predicting samples that came from clinical cancer patient samples or normal samples with VAF Z-score
+
+```{r}
+roc_df_full <- ROC_curve_function(all_data_table, "VAF")
+roc_df_above_0 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0 | all_data_table$pool == "normal"),], "VAF")
+roc_df_above_05 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0.05 | all_data_table$pool == "normal"),], "VAF")
+roc_df_full$samples <- rep("All",nrow(roc_df_full))
+roc_df_above_0$samples <- rep("Above 0.0 ctDNA",nrow(roc_df_above_0))
+roc_df_above_05$samples <- rep("Above 0.05 ctDNA",nrow(roc_df_above_05))
+roc_df <- rbind(roc_df_full,roc_df_above_0,roc_df_above_05)
+ROC_curve<-ggplot(roc_df, aes(x=False_positive_rate, y=True_positive_rate, color = samples)) + geom_path() + ylim(0,1) + geom_abline(intercept = 0, slope = 1) + xlab("1 - Specificity") + ylab("Sensitivity") + labs(color = "Samples Included")
+print(ROC_curve)
+```
+
+##Figure 8. Scatter plot distribution for tumor samples (n = 301) with 7 or more heterozygous SNPs within targeted EGFR gene 
+```{r}
+ggplot(all_data_table[which(all_data_table$pool == "tumor" & all_data_table$egfr_het_SNP_count > 7),], aes(x=mean_AF, y= egfr_z_score, color = as.character(updated_egfr_cn))) + geom_point() + ylab("Mean Z-Score for EGFR Heterozygous SNPs") + xlab("Estimated ctDNA Fraction") + ggtitle("EGFR Mean SNP VAF Z-Score vs Predicted ctDNA Fraction and CNV") + scale_color_discrete(name = "Predicted CNV Amplification", labels = c("Amplified in other samples from same patient", "No amplification", "Amplification")) 
+
+print("number of SNPs")
+print(length(which(all_data_table$egfr_het_SNP_count > 7)))
+print("number of SNPs from patients with no flagged EGFR cnv")
+print(length(which(all_data_table$egfr_het_SNP_count > 7 & all_data_table$updated_egfr_cn == 0)))
+print("number of SNPs from samples with flagged EGFR cnv")
+print(length(which(all_data_table$egfr_het_SNP_count > 7 & all_data_table$updated_egfr_cn == 2)))
+print("number of SNPs from samples with no flagged EGFR cnv but patients with flagged egfr CN in other samples")
+print(length(which(all_data_table$egfr_het_SNP_count > 7 & all_data_table$updated_egfr_cn == -1)))
+```
+
+##Figure 12. Histograms showing distributions of mean fragment length absolute Z-scores for normal pool 
+
+```{r}
+ggplot(all_data_table, aes(x=abs_frag_z_score, fill=pool, color=pool), bins = 90) + geom_histogram(position="identity", alpha=0.5) + theme(legend.position="top") + xlab("Mean Fragment Length Z-Score") + ylab("Sample Count")
+
+ggplot(all_data_table, aes(x=abs_frag_z_score, fill=pool, color=pool), bins = 90) + geom_histogram(position="identity", alpha=0.5) +
+  theme(legend.position="top") + xlim(0.1,3) + xlab("Mean Fragment Length Z-Score") + ylab("Sample Count")
+```
+
+##Figure 13. Scatter plots showing distributions of mean absolute fragment length Z-scores for normal pool 
+```{r}
+p <- ggplot() 
+p <- p + geom_point(data = clin_total_table[clin_total_table$pool == "tumor",], aes(x=mean_AF, y=abs_frag_z_score,color=pool),alpha = 0.5)
+p <- p + geom_point(data = clin_total_table[clin_total_table$pool == "normal",], aes(x=mean_AF, y=abs_frag_z_score,color=pool),alpha = 0.5)
+p <- p + xlab("Estimated ctDNA fraction") + ylab("Mean Fragment Length Z-score")
+p
+g <- p + xlim(0,0.2) + ylim(0.1,3)
+g
+```
+
+##Figure 14. ROC curves for classifying samples as clinical cancer patient samples or normal samples 
+```{r}
+roc_df_full <- ROC_curve_function(all_data_table, "fragment_length")
+roc_df_above_0 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0 | all_data_table$pool == "normal"),], "fragment_length")
+roc_df_above_05 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0.05 | all_data_table$pool == "normal"),], "fragment_length")
+roc_df_full$samples <- rep("All",nrow(roc_df_full))
+roc_df_above_0$samples <- rep("Above 0.0 ctDNA",nrow(roc_df_above_0))
+roc_df_above_05$samples <- rep("Above 0.05 ctDNA",nrow(roc_df_above_05))
+roc_df <- rbind(roc_df_full,roc_df_above_0,roc_df_above_05)
+ROC_curve<-ggplot(roc_df, aes(x=False_positive_rate, y=True_positive_rate, color = samples)) + geom_path() + ylim(0,1) + geom_abline(intercept = 0, slope = 1) + xlab("1 - Specificity") + ylab("Sensitivity") + labs(color = "Samples Included")
+print(ROC_curve)
+```
+
+
+
+
+```{r}
+
+```
+
+```{r}
+roc_df_full <- ROC_curve_function(all_data_table, "fragment_length_with_VAF_cutoff")
+roc_df_above_0 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0 | all_data_table$pool == "normal"),], "fragment_length_with_VAF_cutoff")
+roc_df_above_05 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0.05 | all_data_table$pool == "normal"),], "fragment_length_with_VAF_cutoff")
+roc_df_full$samples <- rep("All",nrow(roc_df_full))
+roc_df_above_0$samples <- rep("Above 0.0 ctDNA",nrow(roc_df_above_0))
+roc_df_above_05$samples <- rep("Above 0.05 ctDNA",nrow(roc_df_above_05))
+roc_df <- rbind(roc_df_full,roc_df_above_0,roc_df_above_05)
+ROC_curve<-ggplot(roc_df, aes(x=False_positive_rate, y=True_positive_rate, color = samples)) + geom_path() + ylim(0,1) + geom_abline(intercept = 0, slope = 1) + xlab("1 - Specificity") + ylab("Sensitivity") + labs(color = "Samples Included")
+print(ROC_curve)
+```
+
+
+```{r}
+
+
+
+```
+
+##Figure 10. Average fraction of total cfDNA for fragment lengths of normal pool 
+```{r}
+
+
+
+```
+
+
+##Figure 11. TSNE (left) and PCA (right) plots showing separation between normal (red) and clinical samples (blue). 
 ```{r}
 
 
 ```
+

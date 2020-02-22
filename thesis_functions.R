@@ -185,3 +185,144 @@ gene_specific_tables <- function(gene_table, tumor_tables, normal_tables, tumor_
   gene_counts_table <- list(gene_z_df, gene_counts_df)
   return(gene_counts_table)
 }
+
+##bin fragments into bins based on bin size 
+bin_fragments = function(frag_lengths,bin_size,lower,upper,sample_name){
+  sample_name <- as.character(sample_name)
+  # make absolute fragment length for reversed segments
+  frag_lengths = abs(frag_lengths)
+  # filter for upper and lower range fragment sizes
+  frag_lengths_vector <- frag_lengths[frag_lengths <= as.numeric(upper+1) & frag_lengths >= as.numeric(lower)]
+  # tallying by each size
+  frag_lengths_vector_tally = table(frag_lengths_vector)
+  # making bin size table explicit
+  if(upper %% bin_size == 0){
+    bins_start = seq(lower,upper,bin_size)
+    bins_end = bins_start+bin_size-1
+  }else{
+    bins_start = seq(lower,upper,bin_size)
+    bins_end = ifelse(bins_start+bin_size-1 > upper, upper,bins_start+bin_size-1)
+  }
+  bins_dt = data.table(start = bins_start,end = bins_end)
+  # counting the sum of fragments within each bin
+  bins_dt[,eval(sample_name) := sum(frag_lengths_vector_tally[start:end]),.(start,end)]
+}
+
+
+normalize_frag_table <- function(frag_table){
+  end <- ncol(frag_table)-1 #don't include sample name column 
+  for(i in 1:nrow(frag_table)){
+    frag_table[i,1:end] <- as.numeric(frag_table[i,1:end])/sum(as.numeric(frag_table[i,1:end]))
+  }
+  return(frag_table)
+}
+
+
+calculate_frag_z_scores <- function(tumor_frag_table, normal_frag_table){
+  end <- ncol(normal_frag_table) - 1
+  normal_z_table <- normal_frag_table[,-c(ncol(normal_frag_table))]
+  for(i in 1:end){
+    for(j in 1:nrow(normal_frag_table)){
+      temp_normal_frag_table <- normal_frag_table[-(j),]
+      normal_mean <- mean(temp_normal_frag_table[,i])
+      normal_sd <- sd(temp_normal_frag_table[,i])
+      normal_z_table[j,i] <- abs((normal_frag_table[j,i] - normal_mean)/normal_sd)
+    }
+  }
+  normal_z_avg_table <- data.frame(sample_names = normal_frag_table$sample_names, abs_frag_z_score = rowMeans(normal_z_table))
+  end <- ncol(tumor_frag_table)-1
+  tumor_z_table <- tumor_frag_table[,-c(ncol(tumor_frag_table))]
+  for(i in 1:end){
+    normal_mean <- mean(normal_frag_table[,i])
+    normal_sd <- sd(normal_frag_table[,i])
+    for(j in 1:nrow(tumor_frag_table)){
+      tumor_z_table[j,i] <- abs((tumor_frag_table[j,i] - normal_mean)/normal_sd)
+    }
+  }
+  tumor_z_avg_table <- data.frame(sample_names = tumor_frag_table$sample_names, abs_frag_z_score = rowMeans(tumor_z_table))
+  return(rbind(normal_z_avg_table,tumor_z_avg_table))
+}
+
+
+ROC_curve_function <- function(sd_df, Z_score){
+  if(Z_score == "VAF"){
+    sd_df$sd_from_normals <- sd_df$VAF_Z_Score
+  }
+  else if(Z_score == "fragment_length"){
+    sd_df$sd_from_normals <- sd_df$abs_frag_z_score
+  }
+  else if(Z_score == "fragment_length_with_VAF_cutoff"){
+    sd_df$sd_from_normals <- sd_df$abs_frag_z_score
+    normal_table <- sd_df[which(sd_df$pool == "normal"),]
+    max_normal_VAF_Z <- max(normal_table$VAF_Z_Score)
+  }
+  labels_vector <- as.character(sd_df$pool)
+  labels_vector[which(labels_vector == "tumor")] <- "1"
+  labels_vector[which(labels_vector == "normal")] <- "0"
+  labels_vector <- as.numeric(labels_vector)
+  number_normal_samples <- 47
+  sd_cutoff <- seq(0.1,15,.01)
+  output_performance <- matrix(rep(0,nrow(sd_df)*length(sd_cutoff)),nrow(sd_df),length(sd_cutoff))
+  label_matrix <- matrix(rep(0,nrow(sd_df)*length(sd_cutoff)),nrow(sd_df),length(sd_cutoff))
+  sd_matrix <- matrix(rep(0,nrow(sd_df)*length(sd_cutoff)),nrow(sd_df),length(sd_cutoff))
+  for(i in 1:length(sd_cutoff)){
+    current_cuttoff <- sd_cutoff[i]
+    predictions_vector <- c()
+    for(j in 1:nrow(sd_df)){
+      if(Z_score == "fragment_length_with_VAF_cutoff"){
+        if(sd_df$VAF_Z_Score[j] > max_normal_VAF_Z){
+          predictions_vector <- c(predictions_vector, 1)
+        }
+        else if(sd_df$sd_from_normals[j] < current_cuttoff){
+          predictions_vector <- c(predictions_vector, 0)
+        }
+        else{
+          predictions_vector <- c(predictions_vector, 1)
+        }
+      }
+      else{
+        if(sd_df$sd_from_normals[j] < current_cuttoff){
+          predictions_vector <- c(predictions_vector, 0)
+        }
+        else{
+          predictions_vector <- c(predictions_vector, 1)
+        }
+      }
+    }
+    output_performance[,i] <- predictions_vector
+    label_matrix[,i] <- labels_vector 
+    sd_vector <- c(labels_vector, c(rep(sd_cutoff[i], number_normal_samples), rep(sd_cutoff[i], nrow(sd_df) - number_normal_samples)))
+    sd_matrix[,i] <- labels_vector 
+  }
+  tpv <- c()
+  fpv <- c()
+  accuracy_v <- c()
+  for(i in 1:ncol(output_performance)){
+    true_pos <- 0
+    false_pos <- 0
+    true_neg <- 0
+    false_neg <- 0
+    for(j in 1:nrow(output_performance)){
+      if(output_performance[j,i] == 1 & label_matrix[j,i] == 1){
+        true_pos <- true_pos + 1
+      } 
+      else if(output_performance[j,i] == 0 & label_matrix[j,i] == 1){
+        false_neg <- false_neg + 1
+      }
+      else if(output_performance[j,i] == 0 & label_matrix[j,i] == 0){
+        true_neg <- true_neg + 1
+      }
+      else{
+        false_pos <- false_pos + 1
+      }
+    }
+    tpr <- true_pos/(true_pos + false_neg)
+    fpr <- false_pos/(false_pos + true_neg)
+    accuracy <- (true_pos + true_neg)/nrow(output_performance)
+    tpv <- c(tpv, tpr)
+    fpv <- c(fpv, fpr)
+    accuracy_v <- c(accuracy_v, accuracy)
+  }
+  roc_df <- data.frame(True_positive_rate = tpv, False_positive_rate = fpv, accuracy = accuracy_v, abs_z_score_cutoffs = sd_cutoff)
+  return(roc_df)
+}
