@@ -89,3 +89,72 @@ saveRDS(complete_vaf_df,"../Gaudin_thesis_data/cdf_250_25_75.rds")
 complete_vaf_df <- readRDS("../Gaudin_thesis_data/cdf_250_25_75.rds")
 complete_vaf_df
 ```
+####Figure 3. Boxplot distributions of mean heterozygous SNP VAF absolute Z-scores for normal pool 
+```{r}
+ggplot(complete_vaf_df, aes(x = pool, y = VAF_Z_Score)) + geom_boxplot() + xlab("Pool") + ylab("Mean Absolute heterozygous SNP VAF Z-score")
+```
+####Figure 4. Histograms showing distributions of mean heterozygous SNP VAF absolute Z-scores for normal pool
+```{r}
+ggplot(complete_vaf_df, aes(x=VAF_Z_Score, fill=pool, color=pool), bins = 90) + geom_histogram(position="identity", alpha=0.5) + theme(legend.position="top") + xlab("Average SNP VAF Z-Score") + ylab("Sample Count")
+
+ggplot(complete_vaf_df, aes(x=VAF_Z_Score, fill=pool, color=pool), bins = 90) + geom_histogram(position="identity", alpha=0.5) +
+  theme(legend.position="top") + xlim(0.5,2) + xlab("Average SNP VAF Z-Score") + ylab("Sample Count")
+```
+
+######Load estimated ctDNA fraction data
+```{r}
+clin_mut_percent_table <- readRDS("../Gaudin_thesis_data/clin_ctDNA_est_table.rds")
+clin_sample_key_table <- readRDS("../Gaudin_thesis_data/key_reference.rds") ##data containing other sample identifiers 
+complete_vaf_df$sample_names <- str_replace(complete_vaf_df$sample_names, "_DONOR", "-DONOR") ##adjust to fit sample names in other files
+cnv_table <- read.table("../Gaudin_thesis_data/data_CNA.txt", header = TRUE) ##table showing called cnvs
+####formatting for merging######
+cnv_table[5,which(cnv_table[5,][2:ncol(cnv_table)] > 0) + 1]
+colnames(cnv_table) <- str_replace(colnames(cnv_table), "[.]", "-")
+colnames(cnv_table) <- str_replace(colnames(cnv_table), "[.]", "-")
+colnames(cnv_table) <- str_replace(colnames(cnv_table), "[.]", "-")
+row.names(cnv_table) <- cnv_table$Hugo_Symbol
+cnv_table <- cnv_table[,-c(1)]
+cnv_table <- t(cnv_table)
+cnv_table <- data.frame(cnv_table) ##convert from atomic vector
+###############################
+egfr_cnv <- data.frame(Tumor_Sample_Barcode = row.names(cnv_table), egfr_cn = cnv_table$EGFR)
+all_data_table <- merge(clin_mut_percent_table, egfr_cnv, all = TRUE)
+all_data_table$mean_AF[is.na(all_data_table$mean_AF)] <- 0 
+all_data_table  <- merge(all_data_table, clin_sample_key_table, by.x = "Tumor_Sample_Barcode", by.y = "id_1") ##id_1 = tumor sample barcode, id_2 == sample name
+all_data_table <- merge(complete_vaf_df,all_data_table,by.x = "sample_names", by.y = "id_2", all.x = TRUE)
+all_data_table$mean_AF[is.na(all_data_table$mean_AF)] <- 0 
+all_data_table
+```
+
+######Figure 5. Scatter plots showing distributions of mean heterozygous SNP VAF absolute Z-scores for normal pool 
+```{r}
+p <- ggplot() 
+p <- p + geom_point(data = clin_total_table[clin_total_table$pool == "tumor",], aes(x=mean_AF, y=abs_frag_z_score,color=pool),alpha = 0.5)
+p <- p + geom_point(data = clin_total_table[clin_total_table$pool == "normal",], aes(x=mean_AF, y=abs_frag_z_score,color=pool),alpha = 0.5)
+p <- p + xlab("Estimated ctDNA fraction") + ylab("Mean Fragment Length Z-score")
+p
+g <- p + xlim(0,0.2) + ylim(0.1,3)
+g
+
+```
+
+
+```{r}
+gene_table <- read.table("GENES_chrom_start_stop.txt", header=TRUE)
+gene_table
+```
+
+```{r eval = FALSE}
+gene_specific_z_scores <- gene_specific_tables(gene_table, tumor_tables, normal_tables, clin_samples, 25,75,5,95,7,250)
+gene_z_df <- gene_specific_z_scores[[1]]
+gene_counts_df <- gene_specific_z_scores[[2]]
+gene_z_df
+gene_counts_df
+saveRDS(gene_z_df,"../Gaudin_thesis_data/clin_gene_z.rds")
+saveRDS(gene_counts_df,"../Gaudin_thesis_data/clin_gene_counts.rds")
+```
+
+```{r}
+
+
+```

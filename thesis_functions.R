@@ -125,6 +125,63 @@ VAF_Z_Score_analysis <- function(normal_table, tumor_table, minimum_coverage, mi
   return(Z_score_df)
 }
 
+## gene specific table function 
 
+gene_spec_table <- function(counts.table, chromosome, start_position, end_position){
+  chrom.spec.table <- counts.table %>% filter(Chromosome == chromosome)
+  position.spec.table <- chrom.spec.table %>% filter(Position >  start_position)
+  position.spec.table <- position.spec.table %>% filter(Position < end_position)
+  return(position.spec.table)
+}
 
-
+## Gene Specific VAF Z-scores
+gene_specific_tables <- function(gene_table, tumor_tables, normal_tables, tumor_names, min_alt_freq_n, max_alt_freq_n, min_alt_freq_t, max_alt_freq_t, min_normal_hets, minimum_coverage){
+  coverage_filtered_normal_table <- filter_by_min_coverage(normal_tables,minimum_coverage)
+  coverage_filtered_tumor_table <- filter_by_min_coverage(tumor_tables,minimum_coverage)
+  for(j in 1:nrow(gene_table)){
+    current_gene_tumor_table <- gene_spec_table(coverage_filtered_tumor_table,gene_table$Chromosome[j],gene_table$Start[j],gene_table$Stop[j])
+    current_gene_normal_table <- gene_spec_table(coverage_filtered_normal_table,gene_table$Chromosome[j],gene_table$Start[j],gene_table$Stop[j])
+    standard_devs <- c()
+    het_counts <- c()
+    avg_percent_dif <- c()
+    for(i in 3:ncol(current_gene_tumor_table)){
+      current_test <- current_gene_tumor_table[,1:2]
+      current_test$Ref <- current_gene_tumor_table[,i]
+      current_test <- condense.tumor(current_test, min_alt_freq_t, max_alt_freq_t)
+      if(nrow(current_test) < 1){
+        standard_devs <- c(standard_devs,0)
+        het_counts <- c(het_counts,0)
+        avg_percent_dif <- 0
+      }
+      else{
+        sample_v_normal_pool_table <- het.analysis.table(current_test, current_gene_normal_table, min_normal_hets, min_alt_freq_n, max_alt_freq_n)
+        if(nrow(sample_v_normal_pool_table) > 0){
+          avg_abs_z <- sum(abs(sample_v_normal_pool_table$tdev_from_n))/nrow(sample_v_normal_pool_table)
+          number_hets <- nrow(sample_v_normal_pool_table)
+          standard_devs <- c(standard_devs,avg_abs_z)
+          het_counts <- c(het_counts,number_hets)            
+        }
+        else{
+          standard_devs <- c(standard_devs,0)
+          het_counts <- c(het_counts,0)
+          avg_percent_dif <- 0          
+        }
+      }
+    }
+    if(j == 1){
+      gene_z_mat <- matrix(data = standard_devs, ncol = 1)
+      gene_counts_mat <- matrix(data = het_counts, ncol = 1)
+    }else{
+      gene_z_mat <- cbind(gene_z_mat,standard_devs)
+      gene_counts_mat <- cbind(gene_counts_mat,het_counts)
+    }
+  }
+  gene_z_df <- data.frame(gene_z_mat)
+  gene_counts_df <- data.frame(gene_counts_mat)
+  colnames(gene_z_df) <- gene_table$GENE
+  colnames(gene_counts_df) <- gene_table$GENE
+  gene_z_df$sample_name <- tumor_names
+  gene_counts_df$sample_name <- tumor_names
+  gene_counts_table <- list(gene_z_df, gene_counts_df)
+  return(gene_counts_table)
+}
