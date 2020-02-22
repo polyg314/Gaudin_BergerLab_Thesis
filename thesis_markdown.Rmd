@@ -7,5 +7,85 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+source('thesis_functions.R')
+library(ggplot2)
+library(tidyverse)
 ```
 
+##Normal Table HET SNP Frequency Analysis
+
+```{r}
+###load targeted normal read counts
+targeted_normal_reads <- read.table("../Gaudin_thesis_data/97_sample_st.dat", stringsAsFactors = F, header = TRUE, sep=",")
+
+##format targeted normal reads tables -- [[1]]: VAF frequency [[2]] coverage at SNP site
+targeted_normal_read_table <- format_het_table(targeted_normal_reads,25,75)
+
+##indices of normal samples run on NovaSeq 6000
+nova_indices <- readRDS("../Gaudin_thesis_data/nova_indices.rds")
+
+##only include NovaSeq normal samples 
+targeted_normal_read_table[[1]] <- targeted_normal_read_table[[1]][,nova_indices + 2] ##nova_indices + 2 accounts for chromosome and position columns
+targeted_normal_read_table[[2]] <- targeted_normal_read_table[[2]][,nova_indices + 2]
+
+```
+####Figure 1. Mean VAF for heterozygous SNP sites in normal pool. 
+```{r}
+st_alt_table <- targeted_normal_read_table[[1]][,3:ncol(targeted_normal_read_table[[1]])] ## remove chromosome and position
+st_cov_table <- targeted_normal_read_table[[2]][,3:ncol(targeted_normal_read_table[[2]])] ## remove chromosome and position
+avg_alts <- c() 
+avg_covs <- c()
+for(i in 1:nrow(st_alt_table)){
+  indices <- which(st_alt_table[i,] > 25 & st_alt_table[i,] < 75 & st_cov_table[i,] > 100) ##only include SNP sites with VAF frequency between 25 - 75 and coverage > 100, 
+  if(length(indices) > 7){ ##only average SNPs that are heterozygous at at least 7 SNP sites
+    avg_alts <- c(avg_alts, mean(as.numeric(st_alt_table[i,indices])))
+    avg_covs <- c(avg_covs, mean(as.numeric(st_cov_table[i,indices]))) 
+  }
+}
+cov_df <- data.frame(Average_vaf = avg_alts, Average_coverage = avg_covs)
+cov_df <- cov_df[!is.na(cov_df$Average_vaf),]
+print(nrow(cov_df))## print number of SNPs 
+print(ggplot(cov_df, aes(x=Average_coverage, y=Average_vaf)) + xlab("SNP Site Average Coverage") + ylab("Mean VAF for SNP") + geom_point() + geom_vline(aes(xintercept=250), colour="#BB0000", linetype="dashed"))
+
+```
+
+##Combining individual snp-pileup dat files to form normal and tumor input files (with on and off target reads)
+####Necessary for large .vaf files with many samples 
+```{r eval = FALSE}
+clin_samples <- read.table("../Gaudin_thesis_data/clin_samples_standard.txt")$V1 ##sample names for clinical files
+clin_sample_paths <- paste("../Gaudin_thesis_data/standard/",clin_samples,".dat",sep="")
+clin_sample_counts_merged <- merge_count_files(clin_sample_paths) ##merged SNP counts file
+
+normal_samples <- read.table("../Gaudin_thesis_data/nova_standard_names.txt")$V1 ##sample names for normal files
+normal_sample_paths <- paste("../Gaudin_thesis_data/nova_standard/",normal_samples,".dat",sep="")
+normal_sample_counts_merged <- merge_count_files(normal_sample_paths) ##merged SNP counts file
+
+saveRDS(normal_sample_counts_merged,"normal_table_merged.rds")
+saveRDS(clin_sample_counts_merged,"clinical_table_merged.rds")
+```
+
+##VAF Z-score Analysis for Tumor and Normal Samples
+######Load saved count files and sample names
+```{r}
+clin_samples <- read.table("../Gaudin_thesis_data/clin_samples_standard.txt")$V1 ##sample names for clinical files
+normal_samples <- read.table("../Gaudin_thesis_data/nova_standard_names.txt")$V1 ##sample names for normal files
+tumor_countsmerged <- readRDS("../Gaudin_thesis_data/clinical_table_merged.rds") ##load saved counts_merged file
+normal_countsmerged <- readRDS("../Gaudin_thesis_data/normal_table_merged.rds") ##load saved counts_merged file
+normal_and_clinical_sample_names <- c(as.character(normal_samples),as.character(clin_samples)) ##combine into single list
+```
+
+######Calculate Average absolute VAF Z-score for each tumor and normal sample
+```{r}
+normal_tables <- format_het_table(normal_countsmerged,5,95) ##[[1]]: VAF frequency [[2]] coverage at SNP site
+tumor_tables <- format_het_table(tumor_countsmerged,5,95) ##[[1]]: VAF frequency [[2]] coverage at SNP site
+```
+
+```{r eval = FALSE}
+complete_vaf_df <- VAF_Z_Score_analysis(normal_tables, tumor_tables, 250, 25, 75, 5, 95, 7,normal_and_clinical_sample_names)
+saveRDS(complete_vaf_df,"../Gaudin_thesis_data/cdf_250_25_75.rds")
+```
+
+```{r}
+complete_vaf_df <- readRDS("../Gaudin_thesis_data/cdf_250_25_75.rds")
+complete_vaf_df
+```
