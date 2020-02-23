@@ -26,8 +26,8 @@ targeted_normal_read_table <- format_het_table(targeted_normal_reads,25,75)
 nova_indices <- readRDS("../Gaudin_thesis_data/nova_indices.rds")
 
 ##only include NovaSeq normal samples 
-targeted_normal_read_table[[1]] <- targeted_normal_read_table[[1]][,nova_indices + 2] ##nova_indices + 2 accounts for chromosome and position columns
-targeted_normal_read_table[[2]] <- targeted_normal_read_table[[2]][,nova_indices + 2]
+targeted_normal_read_table[[1]] <- targeted_normal_read_table[[1]][,c(c(1,2),c(nova_indices + 2))] ##nova_indices + 2 accounts for chromosome and position columns
+targeted_normal_read_table[[2]] <- targeted_normal_read_table[[2]][,c(c(1,2),c(nova_indices + 2))]
 
 ```
 ####Figure 1. Mean VAF for heterozygous SNP sites in normal pool. 
@@ -50,8 +50,28 @@ print(ggplot(cov_df, aes(x=Average_coverage, y=Average_vaf)) + xlab("SNP Site Av
 
 ```
 
+```{r}
+gene_table <- read.table("GENES_chrom_start_stop.txt", header=TRUE)
+
+##adjust for targeting of genes for +/- 1MB , but dont overlap MSH2 and MSH6
+gene_table$Start[-c(4)] <- gene_table$Start[-c(4)] - 1000000
+gene_table$Stop[-c(3)] <- gene_table$Stop[-c(3)] + 1000000
+gene_table
+
+```
+
 ##Figure 9. Histograms showing distributions of 20 targeted SNPs within EGFR (left) and BRCA1 (right) genes in normal samples (n = 47). 
 
+```{r}
+
+normal_targeted_het_counts <- gene_het_count_table(gene_table,targeted_normal_read_table,25,75,100)
+#normal_targeted_het_counts
+#genes_names <- colnames(normal_targeted_het_counts)
+for(i in 1:ncol(normal_targeted_het_counts)){
+  print(hist(normal_targeted_het_counts[,i], breaks = max(normal_targeted_het_counts[,i]), main=paste("Heterozygous SNPs for Each Sample (n = 47) Targeting", colnames(normal_targeted_het_counts)[i]), xlab="Number of Heterozygous SNPs", ylab="Number of Samples"))
+}
+#normal_targeted_het_counts
+```
 
 ##Combining individual snp-pileup dat files to form normal and tumor input files (with on and off target reads)
 ####Necessary for large .vaf files with many samples 
@@ -92,11 +112,6 @@ saveRDS(complete_vaf_df,"../Gaudin_thesis_data/cdf_250_25_75.rds")
 ```{r}
 complete_vaf_df <- readRDS("../Gaudin_thesis_data/cdf_250_25_75.rds")
 complete_vaf_df
-```
-
-```{r}
-gene_table <- read.table("GENES_chrom_start_stop.txt", header=TRUE)
-gene_table
 ```
 
 ```{r eval = FALSE}
@@ -230,8 +245,11 @@ g
 ###Figure 6. Receiver operator characteristic curves for predicting samples that came from clinical cancer patient samples or normal samples with VAF Z-score
 
 ```{r}
+print("roc_df_full")
 roc_df_full <- ROC_curve_function(all_data_table, "VAF")
+print("roc_df_above_0")
 roc_df_above_0 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0 | all_data_table$pool == "normal"),], "VAF")
+print("roc_df_above_05")
 roc_df_above_05 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0.05 | all_data_table$pool == "normal"),], "VAF")
 roc_df_full$samples <- rep("All",nrow(roc_df_full))
 roc_df_above_0$samples <- rep("Above 0.0 ctDNA",nrow(roc_df_above_0))
@@ -277,8 +295,11 @@ g
 
 ##Figure 14. ROC curves for classifying samples as clinical cancer patient samples or normal samples 
 ```{r}
+print("roc_df_full")
 roc_df_full <- ROC_curve_function(all_data_table, "fragment_length")
+print("roc_df_above_0")
 roc_df_above_0 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0 | all_data_table$pool == "normal"),], "fragment_length")
+print("roc_df_above_05")
 roc_df_above_05 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0.05 | all_data_table$pool == "normal"),], "fragment_length")
 roc_df_full$samples <- rep("All",nrow(roc_df_full))
 roc_df_above_0$samples <- rep("Above 0.0 ctDNA",nrow(roc_df_above_0))
@@ -288,16 +309,25 @@ ROC_curve<-ggplot(roc_df, aes(x=False_positive_rate, y=True_positive_rate, color
 print(ROC_curve)
 ```
 
-
-
-
+##Figure 15. Scatter plot demonstrating the correlation between mean SNP VAF Z-scores, mean fragment length Z-scores, and estimated ctDNA fraction 
 ```{r}
-
+ggplot(all_data_table[which(all_data_table$pool == "tumor"),], aes(x=abs_frag_z_score, y=VAF_Z_Score, color = mean_AF)) + geom_point() + ylab("Mean SNP VAF Z-score") + xlab("Mean Fragment Length Z-Score") + labs(color = "Estimated ctDNA Fraction")
 ```
 
+##Figure 16. Scatter plot demonstrating the correlation between mean SNP VAF Z-scores, and mean fragment length Z-scores, and for both normal 
 ```{r}
+f <- ggplot() + geom_point(data = all_data_table[which(all_data_table$pool == "tumor"),], aes(x=abs_frag_z_score, y=VAF_Z_Score, color = pool)) + ylab("Mean SNP VAF Z-score") + xlab("Mean Fragment Length Z-Score") + labs(color = "Pool")
+f <- f + geom_point(data = all_data_table[which(all_data_table$pool == "normal"),], aes(x=abs_frag_z_score, y=VAF_Z_Score, color = pool))
+f
+```
+
+##Figure 17. ROC curves for classifying samples as clinical cancer patient samples or normal samples (n = 47) using both VAF Z-score and fragment length Z-score
+```{r}
+print("roc_df_full")
 roc_df_full <- ROC_curve_function(all_data_table, "fragment_length_with_VAF_cutoff")
+print("roc_df_above_0")
 roc_df_above_0 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0 | all_data_table$pool == "normal"),], "fragment_length_with_VAF_cutoff")
+print("roc_df_above_05")
 roc_df_above_05 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0.05 | all_data_table$pool == "normal"),], "fragment_length_with_VAF_cutoff")
 roc_df_full$samples <- rep("All",nrow(roc_df_full))
 roc_df_above_0$samples <- rep("Above 0.0 ctDNA",nrow(roc_df_above_0))
@@ -307,12 +337,6 @@ ROC_curve<-ggplot(roc_df, aes(x=False_positive_rate, y=True_positive_rate, color
 print(ROC_curve)
 ```
 
-
-```{r}
-
-
-
-```
 
 ##Figure 10. Average fraction of total cfDNA for fragment lengths of normal pool 
 ```{r}
@@ -328,3 +352,9 @@ print(ROC_curve)
 
 ```
 
+
+##Support Vector Machine classifier
+```{r}
+
+
+```

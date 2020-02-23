@@ -129,9 +129,35 @@ VAF_Z_Score_analysis <- function(normal_table, tumor_table, minimum_coverage, mi
 
 gene_spec_table <- function(counts.table, chromosome, start_position, end_position){
   chrom.spec.table <- counts.table %>% filter(Chromosome == chromosome)
-  position.spec.table <- chrom.spec.table %>% filter(Position >  start_position)
+  position.spec.table <- chrom.spec.table %>% filter(Position > start_position)
   position.spec.table <- position.spec.table %>% filter(Position < end_position)
   return(position.spec.table)
+}
+
+
+## get het counts (only) for each sample within a gene 
+gene_het_count_table <- function(gene_table,alt_cov_table, min_alt_freq, max_alt_freq, minimum_coverage){
+  coverage_filtered_table <- filter_by_min_coverage(alt_cov_table,minimum_coverage)
+  for(j in 1:nrow(gene_table)){
+    current_gene_table <- gene_spec_table(coverage_filtered_table,gene_table$Chromosome[j],gene_table$Start[j],gene_table$Stop[j])
+    het_counts <- c()
+    if(j == 3 | j == 4){
+      print(current_gene_table)
+    }
+    for(i in 3:ncol(current_gene_table)){
+      het_count <- length(which(current_gene_table[,i] > min_alt_freq & current_gene_table[,i] < max_alt_freq))
+      het_counts <- c(het_counts,het_count)
+    }
+    if(j == 1){
+      gene_counts_mat <- matrix(data = het_counts, ncol = 1)
+    }else{
+      gene_counts_mat <- cbind(gene_counts_mat,het_counts)
+    }
+  }
+  gene_counts_df <- data.frame(gene_counts_mat)
+  colnames(gene_counts_df) <- gene_table$GENE
+  gene_counts_table <- gene_counts_df
+  return(gene_counts_table)
 }
 
 ## Gene Specific VAF Z-scores
@@ -245,23 +271,43 @@ calculate_frag_z_scores <- function(tumor_frag_table, normal_frag_table){
 
 
 ROC_curve_function <- function(sd_df, Z_score){
+  normal_df <- sd_df[which(sd_df$pool =="normal"),]
+  tumor_df <- sd_df[which(sd_df$pool =="tumor"),]
+  max_normal_vaf_z <- max(normal_df$VAF_Z_Score)
+  max_normal_frag_z <- max(normal_df$abs_frag_z_score)
   if(Z_score == "VAF"){
     sd_df$sd_from_normals <- sd_df$VAF_Z_Score
+    print("ctDNA flagged positive at 100% specificity")
+    sum(tumor_df$VAF_Z_Score > max_normal_vaf_z)
+    print("Number of tumor samples")
+    print(length(tumor_df$VAF_Z_Score))
+    print("Sensitivity")
+    print(sum(tumor_df$VAF_Z_Score > max_normal_vaf_z)/length(tumor_df$VAF_Z_Score))
   }
   else if(Z_score == "fragment_length"){
     sd_df$sd_from_normals <- sd_df$abs_frag_z_score
+    print("ctDNA flagged positive at 100% specificity")
+    sum(tumor_df$VAF_Z_Score > max_normal_vaf_z )
+    print("Number of tumor samples")
+    print(length(tumor_df$abs_frag_z_score))
+    print("Sensitivity")
+    print(sum(tumor_df$abs_frag_z_score > max_normal_frag_z)/length(tumor_df$abs_frag_z_score))
   }
   else if(Z_score == "fragment_length_with_VAF_cutoff"){
-    sd_df$sd_from_normals <- sd_df$abs_frag_z_score
-    normal_table <- sd_df[which(sd_df$pool == "normal"),]
-    max_normal_VAF_Z <- max(normal_table$VAF_Z_Score)
+    sd_df$sd_from_normals <- sd_df$VAF_Z_Score
+    print("ctDNA flagged positive at 100% specificity")
+    sum(tumor_df$abs_frag_z_score > normal_max | tumor_df$VAF_Z_Score > max_normal_vaf_z )
+    print("Number of tumor samples")
+    print(length(tumor_df$abs_frag_z_score))
+    print("Sensitivity")
+    print(sum(tumor_df$abs_frag_z_score > max_normal_frag_z | tumor_df$VAF_Z_Score > max_normal_vaf_z)/length(tumor_df$VAF_Z_Score))
   }
   labels_vector <- as.character(sd_df$pool)
   labels_vector[which(labels_vector == "tumor")] <- "1"
   labels_vector[which(labels_vector == "normal")] <- "0"
   labels_vector <- as.numeric(labels_vector)
   number_normal_samples <- 47
-  sd_cutoff <- seq(0.1,15,.01)
+  sd_cutoff <- seq(0,15,.001)
   output_performance <- matrix(rep(0,nrow(sd_df)*length(sd_cutoff)),nrow(sd_df),length(sd_cutoff))
   label_matrix <- matrix(rep(0,nrow(sd_df)*length(sd_cutoff)),nrow(sd_df),length(sd_cutoff))
   sd_matrix <- matrix(rep(0,nrow(sd_df)*length(sd_cutoff)),nrow(sd_df),length(sd_cutoff))
@@ -269,15 +315,15 @@ ROC_curve_function <- function(sd_df, Z_score){
     current_cuttoff <- sd_cutoff[i]
     predictions_vector <- c()
     for(j in 1:nrow(sd_df)){
-      if(Z_score == "fragment_length_with_VAF_cutoff"){
-        if(sd_df$VAF_Z_Score[j] > max_normal_VAF_Z){
+      if(Z_score == "VAF__with_frag_cutoff"){
+        if(sd_df$abs_frag_z_score[j] > max_normal_frag_z){
           predictions_vector <- c(predictions_vector, 1)
         }
-        else if(sd_df$sd_from_normals[j] < current_cuttoff){
+       else if(sd_df$sd_from_normals[j] < current_cuttoff){
           predictions_vector <- c(predictions_vector, 0)
-        }
-        else{
-          predictions_vector <- c(predictions_vector, 1)
+       }
+       else{
+         predictions_vector <- c(predictions_vector, 1)
         }
       }
       else{
@@ -324,5 +370,15 @@ ROC_curve_function <- function(sd_df, Z_score){
     accuracy_v <- c(accuracy_v, accuracy)
   }
   roc_df <- data.frame(True_positive_rate = tpv, False_positive_rate = fpv, accuracy = accuracy_v, abs_z_score_cutoffs = sd_cutoff)
+  print_ROC_AUC(roc_df)
   return(roc_df)
+}
+
+print_ROC_AUC <- function(roc_df){
+  fp_rates <- roc_df$False_positive_rate
+  fp_rates_2 <- c(1,fp_rates)
+  horizontal_distance <- abs(fp_rates - fp_rates_2[1:length(fp_rates)])
+  AUC <- sum(roc_df$True_positive_rate * horizontal_distance)
+  print("AUC")
+  print(AUC)
 }
