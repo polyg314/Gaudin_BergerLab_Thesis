@@ -141,9 +141,6 @@ gene_het_count_table <- function(gene_table,alt_cov_table, min_alt_freq, max_alt
   for(j in 1:nrow(gene_table)){
     current_gene_table <- gene_spec_table(coverage_filtered_table,gene_table$Chromosome[j],gene_table$Start[j],gene_table$Stop[j])
     het_counts <- c()
-    if(j == 3 | j == 4){
-      print(current_gene_table)
-    }
     for(i in 3:ncol(current_gene_table)){
       het_count <- length(which(current_gene_table[,i] > min_alt_freq & current_gene_table[,i] < max_alt_freq))
       het_counts <- c(het_counts,het_count)
@@ -296,7 +293,7 @@ ROC_curve_function <- function(sd_df, Z_score){
   else if(Z_score == "fragment_length_with_VAF_cutoff"){
     sd_df$sd_from_normals <- sd_df$VAF_Z_Score
     print("ctDNA flagged positive at 100% specificity")
-    sum(tumor_df$abs_frag_z_score > normal_max | tumor_df$VAF_Z_Score > max_normal_vaf_z )
+    sum(tumor_df$abs_frag_z_score > max_normal_frag_z | tumor_df$VAF_Z_Score > max_normal_vaf_z )
     print("Number of tumor samples")
     print(length(tumor_df$abs_frag_z_score))
     print("Sensitivity")
@@ -381,4 +378,96 @@ print_ROC_AUC <- function(roc_df){
   AUC <- sum(roc_df$True_positive_rate * horizontal_distance)
   print("AUC")
   print(AUC)
+}
+
+calclulate_mean_SVM_100 <- function(VAF_frag_table){
+  SD_and_frags_table <- VAF_frag_table[,c(4:ncol(VAF_frag_table),c(2))]
+  SD_and_frags_table$pool <- as.character(SD_and_frags_table$pool)
+  SD_and_frags_table$pool[which(SD_and_frags_table$pool == "tumor")] <- "1"
+  SD_and_frags_table$pool[which(SD_and_frags_table$pool == "normal")] <- "0"
+  SD_and_frags_table$pool <- as.factor(SD_and_frags_table$pool)
+  SD_and_frags_table
+  last_col <- ncol(SD_and_frags_table)
+  number_of_samples <- nrow(SD_and_frags_table)
+  interval <- round(number_of_samples/4)
+  true_neg <- 0
+  false_neg <- 0
+  false_pos <- 0
+  true_pos <- 0
+  for(i in 1:100){
+    random_test_train_seq <- sample(c(1:number_of_samples), size = number_of_samples)
+    training_set_1 <- SD_and_frags_table[-random_test_train_seq[1:interval],]
+    test_set_1 <- SD_and_frags_table[random_test_train_seq[1:interval],]
+    training_set_2 <- SD_and_frags_table[-random_test_train_seq[(interval + 1):(interval*2)],]
+    test_set_2 <- SD_and_frags_table[random_test_train_seq[(interval + 1):(interval*2)],]
+    training_set_3 <- SD_and_frags_table[-random_test_train_seq[((interval*2) + 1):(interval*3)],]
+    test_set_3 <- SD_and_frags_table[random_test_train_seq[((interval*2) + 1):(interval*3)],]
+    training_set_4 <- SD_and_frags_table[-random_test_train_seq[((interval*3) + 1):number_of_samples],]
+    test_set_4 <- SD_and_frags_table[random_test_train_seq[((interval*3) + 1):number_of_samples],]
+    training_set_1[-last_col] = scale(training_set_1[-last_col]) 
+    test_set_1[-last_col] = scale(test_set_1[-last_col]) 
+    classifier = svm(formula = pool ~ ., 
+                     data = training_set_1, 
+                     type = 'C-classification', 
+                     kernel = 'linear')
+    
+    y_pred = predict(classifier, newdata = test_set_1[-ncol(test_set_1)])
+    cm = table(test_set_1[,last_col], y_pred) 
+    true_neg <- true_neg + cm[[1]]
+    false_neg <- false_neg + cm[[2]]
+    false_pos <- false_pos + cm[[3]]
+    true_pos <- true_pos + cm[[4]]
+    training_set_2[-last_col] = scale(training_set_2[-last_col]) 
+    test_set_2[-last_col] = scale(test_set_2[-last_col]) 
+    classifier = svm(formula = pool ~ ., 
+                     data = training_set_2, 
+                     type = 'C-classification', 
+                     kernel = 'linear')
+    y_pred = predict(classifier, newdata = test_set_2[-ncol(test_set_2)])
+    cm = table(test_set_2[,last_col], y_pred) 
+    true_neg <- true_neg + cm[[1]]
+    false_neg <- false_neg + cm[[2]]
+    false_pos <- false_pos + cm[[3]]
+    true_pos <- true_pos + cm[[4]]
+    training_set_3[-last_col] = scale(training_set_3[-last_col]) 
+    test_set_3[-last_col] = scale(test_set_3[-last_col]) 
+    classifier = svm(formula = pool ~ ., 
+                     data = training_set_3, 
+                     type = 'C-classification', 
+                     kernel = 'linear')
+    y_pred = predict(classifier, newdata = test_set_3[-ncol(test_set_3)])
+    cm = table(test_set_3[,last_col], y_pred) 
+    true_neg <- true_neg + cm[[1]]
+    false_neg <- false_neg + cm[[2]]
+    false_pos <- false_pos + cm[[3]]
+    true_pos <- true_pos + cm[[4]]
+    training_set_4[-last_col] = scale(training_set_4[-last_col]) 
+    test_set_4[-last_col] = scale(test_set_4[-last_col]) 
+    #training_set_4
+    #test_set_4
+    classifier = svm(formula = pool ~ ., 
+                     data = training_set_4, 
+                     type = 'C-classification', 
+                     kernel = 'linear')
+    
+    y_pred = predict(classifier, newdata = test_set_4[-ncol(test_set_4)])
+    #y_pred
+    cm = table(test_set_4[,last_col], y_pred) 
+    true_neg <- true_neg + cm[[1]]
+    false_neg <- false_neg + cm[[2]]
+    false_pos <- false_pos + cm[[3]]
+    true_pos <- true_pos + cm[[4]]
+  }
+  true_neg <- true_neg/100
+  false_neg <- false_neg/100
+  false_pos <- false_pos/100
+  true_pos <- true_pos/100
+  print("true_neg")
+  print(true_neg)
+  print("false_neg")
+  print(false_neg)
+  print("false_pos")
+  print(false_pos)
+  print("true_pos")
+  print(true_pos)
 }
