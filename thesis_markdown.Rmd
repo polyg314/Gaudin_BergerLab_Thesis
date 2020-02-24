@@ -12,8 +12,11 @@ library(ggplot2)
 library(tidyverse)
 library(data.table)
 library(Rtsne)
-library("factoextra")
+library(factoextra)
 library(e1071) 
+library(cowplot)
+library(ISLR)
+library(pROC)
 ```
 
 ## Normal Table HET SNP Frequency Analysis
@@ -225,16 +228,20 @@ ggplot(all_data_table, aes(x = pool, y = VAF_Z_Score)) + geom_boxplot() + xlab("
 ```
 #### Figure 4. Histograms showing distributions of mean heterozygous SNP VAF absolute Z-scores for normal pool
 ```{r}
-ggplot(all_data_table, aes(x=VAF_Z_Score, fill=pool, color=pool), bins = 90) + geom_histogram(position="identity", alpha=0.5) + theme(legend.position="top") + xlab("Average SNP VAF Z-Score") + ylab("Sample Count")
+a <- ggplot(all_data_table, aes(x=VAF_Z_Score, fill=pool, color=pool), bins = 90) + geom_histogram(position="identity", alpha=0.5) + theme(legend.position="top") + xlab("Average SNP VAF Z-Score") + ylab("Sample Count")
 
-ggplot(all_data_table, aes(x=VAF_Z_Score, fill=pool, color=pool), bins = 90) + geom_histogram(position="identity", alpha=0.5) +
+b <- ggplot(all_data_table, aes(x=VAF_Z_Score, fill=pool, color=pool), bins = 90) + geom_histogram(position="identity", alpha=0.5) +
   theme(legend.position="top") + xlim(0.5,2) + xlab("Average SNP VAF Z-Score") + ylab("Sample Count")
+
+print(a)
+print(b)
+#plot_grid(a, b, labels = "AUTO")
 ```
 ###### Figure 5. Scatter plots showing distributions of mean heterozygous SNP VAF absolute Z-scores for normal pool 
 ```{r}
 p <- ggplot() 
-p <- p + geom_point(data = all_data_table[clin_total_table$pool == "tumor",], aes(x=mean_AF, y=abs_frag_z_score,color=pool),alpha = 0.5)
-p <- p + geom_point(data = all_data_table[clin_total_table$pool == "normal",], aes(x=mean_AF, y=abs_frag_z_score,color=pool),alpha = 0.5)
+p <- p + geom_point(data = all_data_table[all_data_table$pool == "tumor",], aes(x=mean_AF, y=abs_frag_z_score,color=pool),alpha = 0.5)
+p <- p + geom_point(data = all_data_table[all_data_table$pool == "normal",], aes(x=mean_AF, y=abs_frag_z_score,color=pool),alpha = 0.5)
 p <- p + xlab("Estimated ctDNA fraction") + ylab("Mean Fragment Length Z-score")
 print(p)
 g <- p + xlim(0,0.2) + ylim(0.1,3)
@@ -258,7 +265,7 @@ ROC_curve<-ggplot(roc_df, aes(x=False_positive_rate, y=True_positive_rate, color
 print(ROC_curve)
 ```
 
-## Figure 8. Scatter plot distribution for tumor samples (n = 301) with 7 or more heterozygous SNPs within targeted EGFR gene 
+## Figure 8. Scatter plot distribution for tumor samples (n = 383) with 7 or more heterozygous SNPs within targeted EGFR gene 
 ```{r}
 ggplot(all_data_table[which(all_data_table$pool == "tumor" & all_data_table$egfr_het_SNP_count > 7),], aes(x=mean_AF, y= egfr_z_score, color = as.character(updated_egfr_cn))) + geom_point() + ylab("Mean Z-Score for EGFR Heterozygous SNPs") + xlab("Estimated ctDNA Fraction") + ggtitle("EGFR Mean SNP VAF Z-Score vs Predicted ctDNA Fraction and CNV") + scale_color_discrete(name = "Predicted CNV Amplification", labels = c("Amplified in other samples from same patient", "No amplification", "Amplification")) 
 
@@ -328,11 +335,11 @@ print(f)
 ## Figure 17. ROC curves for classifying samples as clinical cancer patient samples or normal samples (n = 47) using both VAF Z-score and fragment length Z-score
 ```{r}
 print("roc_df_full")
-roc_df_full <- ROC_curve_function(all_data_table, "fragment_length_with_VAF_cutoff")
+roc_df_full <- ROC_curve_function(all_data_table, "VAF_with_frag_cutoff")
 print("roc_df_above_0")
-roc_df_above_0 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0 | all_data_table$pool == "normal"),], "fragment_length_with_VAF_cutoff")
+roc_df_above_0 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0 | all_data_table$pool == "normal"),], "VAF_with_frag_cutoff")
 print("roc_df_above_05")
-roc_df_above_05 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0.05 | all_data_table$pool == "normal"),], "fragment_length_with_VAF_cutoff")
+roc_df_above_05 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0.05 | all_data_table$pool == "normal"),], "VAF_with_frag_cutoff")
 roc_df_full$samples <- rep("All",nrow(roc_df_full))
 roc_df_above_0$samples <- rep("Above 0.0 ctDNA",nrow(roc_df_above_0))
 roc_df_above_05$samples <- rep("Above 0.05 ctDNA",nrow(roc_df_above_05))
@@ -447,4 +454,37 @@ print("All normal and tumor samples with ctDNA > 0")
 calclulate_mean_SVM_100(VAF_frag_table[which(VAF_frag_table$pool == "normal" | VAF_frag_table$mean_AF > 0),])
 print("All normal and tumor samples with ctDNA > 0.05")
 calclulate_mean_SVM_100(VAF_frag_table[which(VAF_frag_table$pool == "normal" | VAF_frag_table$mean_AF > 0.05),])
+```
+
+## Logistic Regression
+###### All samples
+```{r}
+log_vf_frag_df <- data.frame(pool = all_data_table$pool, VAF_Z_Score = all_data_table$VAF_Z_Score, abs_frag_z_score = all_data_table$abs_frag_z_score)
+glm.fit <- glm(pool~ VAF_Z_Score + abs_frag_z_score, data = log_vf_frag_df, family = binomial)
+glm.probs <- predict(glm.fit,type = "response")
+e <- roc(pool ~ glm.probs, data = log_vf_frag_df, print.auc=TRUE)
+auc(pool ~ glm.probs, data = log_vf_frag_df, print.auc=TRUE)
+ci.se(e,specificities = c(1))
+```
+###### Above 0.0
+```{r}
+log_vf_frag_df <- data.frame(pool = all_data_table[which(all_data_table$pool == "normal" | all_data_table$mean_AF > 0.0),]$pool, VAF_Z_Score = all_data_table[which(all_data_table$pool == "normal" | all_data_table$mean_AF > 0.0),]$VAF_Z_Score, abs_frag_z_score = all_data_table[which(all_data_table$pool == "normal" | all_data_table$mean_AF > 0.0),]$abs_frag_z_score)
+glm.fit <- glm(pool~ VAF_Z_Score + abs_frag_z_score, data = log_vf_frag_df, family = binomial)
+glm.probs <- predict(glm.fit,type = "response")
+f <- roc(pool ~ glm.probs, data = log_vf_frag_df, print.auc=TRUE)
+auc(pool ~ glm.probs, data = log_vf_frag_df, print.auc=TRUE)
+ci.se(f,specificities = c(1))
+```
+###### Above 0.05
+```{r}
+log_vf_frag_df <- data.frame(pool = all_data_table[which(all_data_table$pool == "normal" | all_data_table$mean_AF > 0.05),]$pool, VAF_Z_Score = all_data_table[which(all_data_table$pool == "normal" | all_data_table$mean_AF > 0.05),]$VAF_Z_Score, abs_frag_z_score = all_data_table[which(all_data_table$pool == "normal" | all_data_table$mean_AF > 0.05),]$abs_frag_z_score)
+glm.fit <- glm(pool~ VAF_Z_Score + abs_frag_z_score, data = log_vf_frag_df, family = binomial)
+glm.probs <- predict(glm.fit,type = "response")
+g <- roc(pool ~ glm.probs, data = log_vf_frag_df, print.auc=TRUE)
+auc(pool ~ glm.probs, data = log_vf_frag_df, print.auc=TRUE)
+plot(g, asp = NA, xlim=c(1, 0), ylim = c(0,1), col="green")  
+lines(e, col="red",lty=1)
+lines(f, col="blue",lty=1)
+legend(0.4,0.3,legend=c("all samples","ctDNA above 0","ctDNA above 0.05"), col=c("red","blue","green"), lty = 1)
+ci.se(g,specificities = c(1))
 ```

@@ -290,7 +290,7 @@ ROC_curve_function <- function(sd_df, Z_score){
     print("Sensitivity")
     print(sum(tumor_df$abs_frag_z_score > max_normal_frag_z)/length(tumor_df$abs_frag_z_score))
   }
-  else if(Z_score == "fragment_length_with_VAF_cutoff"){
+  else if(Z_score == "VAF_with_frag_cutoff"){
     sd_df$sd_from_normals <- sd_df$VAF_Z_Score
     print("ctDNA flagged positive at 100% specificity")
     sum(tumor_df$abs_frag_z_score > max_normal_frag_z | tumor_df$VAF_Z_Score > max_normal_vaf_z )
@@ -312,7 +312,7 @@ ROC_curve_function <- function(sd_df, Z_score){
     current_cuttoff <- sd_cutoff[i]
     predictions_vector <- c()
     for(j in 1:nrow(sd_df)){
-      if(Z_score == "VAF__with_frag_cutoff"){
+      if(Z_score == "VAF_with_frag_cutoff"){
         if(sd_df$abs_frag_z_score[j] > max_normal_frag_z){
           predictions_vector <- c(predictions_vector, 1)
         }
