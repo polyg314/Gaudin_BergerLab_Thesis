@@ -14,47 +14,116 @@ library(data.table)
 library(Rtsne)
 library(factoextra)
 library(e1071) 
-library(cowplot)
 library(ISLR)
 library(pROC)
+library(gridExtra)
+library(grid)
+library(ggplot2)
+library(lattice)
 ```
 
 #### Normal Table HET SNP Frequency Analysis
+
 ```{r}
-###load targeted normal read counts
-targeted_normal_reads <- read.table("../Gaudin_thesis_data/97_sample_st.dat", stringsAsFactors = F, header = TRUE, sep=",")
 
-##format targeted normal reads tables -- [[1]]: VAF frequency [[2]] coverage at SNP site
-targeted_normal_read_table <- format_het_table(targeted_normal_reads,25,75)
+targeted_normal_read_table <- readRDS("../Gaudin_thesis_data/normal_reads_table.rds")
 
-##indices of normal samples run on NovaSeq 6000
-nova_indices <- readRDS("../Gaudin_thesis_data/nova_indices.rds")
-
-##only include NovaSeq normal samples 
-targeted_normal_read_table[[1]] <- targeted_normal_read_table[[1]][,c(c(1,2),c(nova_indices + 2))] ##nova_indices + 2 accounts for chromosome and position columns
-targeted_normal_read_table[[2]] <- targeted_normal_read_table[[2]][,c(c(1,2),c(nova_indices + 2))]
 
 ```
+
+```{r}
+SNP_targets_info <- read.table("../Gaudin_thesis_data/SNP_targets_info.csv", stringsAsFactors = F, header = FALSE, sep="\t")
+SNP_targets_info <- SNP_targets_info[,c(4,5)]
+targeted_normal_read_table[[1]]$chrom_and_position <- paste(targeted_normal_read_table[[1]]$Chromosome, ":",targeted_normal_read_table[[1]]$Position, "-",targeted_normal_read_table[[1]]$Position, sep="")
+targeted_normal_read_table[[2]]$chrom_and_position <- paste(targeted_normal_read_table[[2]]$Chromosome, ":",targeted_normal_read_table[[2]]$Position, "-",targeted_normal_read_table[[2]]$Position, sep="")
+#targeted_normal_read_table[[1]]$chrom_and_position
+targeted_normal_read_table[[1]] <- merge(targeted_normal_read_table[[1]], SNP_targets_info, by.x = "chrom_and_position", by.y = "V5")
+
+targeted_normal_read_table[[2]] <- merge(targeted_normal_read_table[[2]], SNP_targets_info, by.x = "chrom_and_position", by.y = "V5")
+```
+
+
+```{r}
+targeted_tumor_read_table <- readRDS("../Gaudin_thesis_data/tumor_reads_table.rds")
+
+targeted_tumor_read_table[[1]]$chrom_and_position <- paste(targeted_tumor_read_table[[1]]$Chromosome, ":",targeted_tumor_read_table[[1]]$Position, "-",targeted_tumor_read_table[[1]]$Position, sep="")
+targeted_tumor_read_table[[2]]$chrom_and_position <- paste(targeted_tumor_read_table[[2]]$Chromosome, ":",targeted_tumor_read_table[[2]]$Position, "-",targeted_tumor_read_table[[2]]$Position, sep="")
+#targeted_tumor_read_table[[1]]$chrom_and_position
+targeted_tumor_read_table[[1]] <- merge(targeted_tumor_read_table[[1]], SNP_targets_info, by.x = "chrom_and_position", by.y = "V5")
+
+targeted_tumor_read_table[[2]] <- merge(targeted_tumor_read_table[[2]], SNP_targets_info, by.x = "chrom_and_position", by.y = "V5")
+```
+
+
 #### Mean VAF for heterozygous SNP sites in normal pool. 
 ```{r}
-st_alt_table <- targeted_normal_read_table[[1]][,3:ncol(targeted_normal_read_table[[1]])] ## remove chromosome and position
-st_cov_table <- targeted_normal_read_table[[2]][,3:ncol(targeted_normal_read_table[[2]])] ## remove chromosome and position
+st_alt_table <- targeted_normal_read_table[[1]][,3:ncol(targeted_normal_read_table[[1]]) - 1] ## remove chromosome and position
+st_cov_table <- targeted_normal_read_table[[2]][,3:ncol(targeted_normal_read_table[[2]]) - 1] ## remove chromosome and position
 avg_alts <- c() 
 avg_covs <- c()
+pool_vector <- c()
+sds <- c()
+size <- c()
 for(i in 1:nrow(st_alt_table)){
-  indices <- which(st_alt_table[i,] > 25 & st_alt_table[i,] < 75 & st_cov_table[i,] > 100) ##only include SNP sites with VAF frequency between 25 - 75 and coverage > 100, 
+  indices <- which(st_alt_table[i,] > 5 & st_alt_table[i,] < 95 & st_cov_table[i,] > 250) ##only include SNP sites with VAF frequency between 25 - 75 and coverage > 100, 
   if(length(indices) > 7){ ##only average SNPs that are heterozygous at at least 7 SNP sites
     avg_alts <- c(avg_alts, mean(as.numeric(st_alt_table[i,indices])))
     avg_covs <- c(avg_covs, mean(as.numeric(st_cov_table[i,indices]))) 
+    pool_vector <- c(pool_vector, targeted_normal_read_table[[1]]$V4[i])
+    sds <- c(sds, sd(as.numeric(st_alt_table[i,indices])))
+    size <- c(size, length(indices))
   }
 }
-cov_df <- data.frame(Average_vaf = avg_alts, Average_coverage = avg_covs)
+cov_df <- data.frame(Average_vaf = avg_alts, Average_coverage = avg_covs, pool = pool_vector,Standard_devs = sds, size = size)
 cov_df <- cov_df[!is.na(cov_df$Average_vaf),]
 print("number of SNPs included")
 print(nrow(cov_df))## print number of SNPs 
-print(ggplot(cov_df, aes(x=Average_coverage, y=Average_vaf)) + xlab("SNP Site Average Coverage") + ylab("Mean VAF for SNP") + geom_point() + geom_vline(aes(xintercept=250), colour="#BB0000", linetype="dashed"))
+print(ggplot(cov_df, aes(x=Average_coverage, y=Average_vaf, color = pool)) + xlab("SNP Site Average Coverage") + ylab("Mean VAF for SNP") + geom_point() + geom_vline(aes(xintercept=250), colour="#BB0000", linetype="dashed") + ylim(5,95))
+print(ggplot(cov_df, aes(x=Average_coverage, y=Standard_devs, shape = pool, color = size )) + xlab("SNP Site Average Coverage") + ylab("Standard Dev for het SNP") + geom_point() + geom_vline(aes(xintercept=250), colour="#BB0000", linetype="dashed"))
+
 
 ```
+```{r}
+minor_alleles <- c()
+
+for(i in 1:nrow(cov_df)){
+  if(cov_df$Average_vaf[i] >= 50){
+    minor_alleles <- c(minor_alleles, 100 - cov_df$Average_vaf[i])
+  }else{
+    minor_alleles <- c(minor_alleles, cov_df$Average_vaf[i])
+  }
+}
+
+cov_df$minor_allels <- minor_alleles
+
+print(ggplot(cov_df, aes(x=Average_coverage, y=minor_alleles, color = pool)) + xlab("SNP Site Average Coverage") + ylab("Mean VAF for minor allele SNP") + geom_point() + geom_vline(aes(xintercept=250), colour="#BB0000", linetype="dashed"))
+```
+
+#### For tumor targeted reads
+```{r}
+st_alt_table <- targeted_tumor_read_table[[1]][,5:ncol(targeted_tumor_read_table[[1]]) - 1] ## remove chromosome and position and pool 
+st_cov_table <- targeted_tumor_read_table[[2]][,5:ncol(targeted_tumor_read_table[[2]]) - 1] ## remove chromosome and position and pool 
+avg_alts <- c() 
+avg_covs <- c()
+pool_vector <- c()
+sds <- c()
+for(i in 1:nrow(st_alt_table)){
+  indices <- which(st_alt_table[i,] > 5 & st_alt_table[i,] < 95 & st_cov_table[i,] > 250) ##only include SNP sites with VAF frequency between 25 - 75 and coverage > 100, 
+  if(length(indices) > 7){ ##only average SNPs that are heterozygous at at least 7 SNP sites
+    avg_alts <- c(avg_alts, mean(as.numeric(st_alt_table[i,indices])))
+    avg_covs <- c(avg_covs, mean(as.numeric(st_cov_table[i,indices]))) 
+    pool_vector <- c(pool_vector, targeted_tumor_read_table[[1]]$V4[i])
+    sds <- c(sds, sd(as.numeric(st_alt_table[i,indices])))
+  }
+}
+cov_df <- data.frame(Average_vaf = avg_alts, Average_coverage = avg_covs, pool = pool_vector,Standard_devs = sds)
+cov_df <- cov_df[!is.na(cov_df$Average_vaf),]
+print("number of SNPs included")
+print(nrow(cov_df))## print number of SNPs 
+print(ggplot(cov_df, aes(x=Average_coverage, y=Average_vaf, color = pool)) + xlab("SNP Site Average Coverage") + ylab("Mean VAF for SNP") + geom_point() + geom_vline(aes(xintercept=250), colour="#BB0000", linetype="dashed") + ylim(5,95))
+print(ggplot(cov_df, aes(x=Average_coverage, y=Standard_devs, color = pool)) + xlab("SNP Site Average Coverage") + ylab("Standard Dev for het SNP") + geom_point() + geom_vline(aes(xintercept=250), colour="#BB0000", linetype="dashed"))
+```
+
 
 ```{r}
 gene_table <- read.table("GENES_chrom_start_stop.txt", header=TRUE)
@@ -106,20 +175,26 @@ normal_and_clinical_sample_names <- c(as.character(normal_samples),as.character(
 ```{r}
 normal_tables <- format_het_table(normal_countsmerged,5,95) ##[[1]]: VAF frequency [[2]] coverage at SNP site
 tumor_tables <- format_het_table(tumor_countsmerged,5,95) ##[[1]]: VAF frequency [[2]] coverage at SNP site
-```
 
-```{r eval = FALSE}
-complete_vaf_df <- VAF_Z_Score_analysis(normal_tables, tumor_tables, 250, 25, 75, 5, 95, 7,normal_and_clinical_sample_names)
-saveRDS(complete_vaf_df,"../Gaudin_thesis_data/cdf_250_25_75.rds")
 ```
 
 ```{r}
-complete_vaf_df <- readRDS("../Gaudin_thesis_data/cdf_250_25_75.rds")
+#saveRDS(tumor_tables, "../Gaudin_thesis_data/tumor_reads_table.rds")
+#saveRDS(normal_tables, "../Gaudin_thesis_data/normal_reads_table.rds")
+```
+
+```{r eval = FALSE}
+complete_vaf_df <- VAF_Z_Score_analysis(normal_tables, tumor_tables, 250, 5, 95, 5, 95, 7,normal_and_clinical_sample_names)
+saveRDS(complete_vaf_df,"../Gaudin_thesis_data/cdf_250_5_95.rds")
+```
+
+```{r}
+complete_vaf_df <- readRDS("../Gaudin_thesis_data/cdf_250_5_95.rds")
 #complete_vaf_df
 ```
 
 ```{r}
-gene_specific_z_scores <- gene_specific_tables(gene_table, tumor_tables, normal_tables, clin_samples, 25,75,5,95,7,250)
+gene_specific_z_scores <- gene_specific_tables(gene_table, tumor_tables, normal_tables, clin_samples, 5,95,5,95,7,250)
 gene_z_df <- gene_specific_z_scores[[1]]
 gene_counts_df <- gene_specific_z_scores[[2]]
 #saveRDS(gene_z_df,"../Gaudin_thesis_data/clin_gene_z.rds")
@@ -155,7 +230,9 @@ frag_table <- as.data.frame(frag_table)
 frag_table <- frag_table[,-c(ncol(frag_table))]
 frag_table$sample_names <- row.names(frag_table)
 frag_table <- normalize_frag_table(frag_table)
-frag_table <- frag_table[,c(c(26:31),c(35:40),c(51:75))] #bins between 125 - 155, 170 - 200, 250 - 375 
+fragment_bins_to_analyze <- readRDS("../Gaudin_thesis_data/fragment_bins_to_analyze.rds")
+frag_table <- frag_table[,fragment_bins_to_analyze]
+#frag_table <- frag_table[,c(c(26:31),c(35:40),c(51:75))] #bins between 125 - 155, 170 - 200, 250 - 375 
 frag_table_normal <- frag_table[c(1:47),]
 frag_table_clin <- frag_table[c(48:nrow(frag_table)),]
 frag_table_normal$sample_names = rownames(frag_table_normal)
@@ -225,12 +302,20 @@ all_data_table$updated_egfr_cn <- updated_egfr_cn
 ```{r}
 ggplot(all_data_table, aes(x = pool, y = VAF_Z_Score)) + geom_boxplot() + xlab("Pool") + ylab("Mean Absolute heterozygous SNP VAF Z-score")
 ```
+#### Boxplot for non-absolute average VAF Z Scores
+```{r}
+ggplot(all_data_table, aes(x = pool, y = VAF_Z_NA)) + geom_boxplot() + xlab("Pool") + ylab("Mean Absolute heterozygous SNP VAF Z-score")
+
+```
+
 ##### Histograms showing distributions of mean heterozygous SNP VAF absolute Z-scores for normal pool
 ```{r}
 a <- ggplot(all_data_table, aes(x=VAF_Z_Score, fill=pool, color=pool), bins = 90) + geom_histogram(position="identity", alpha=0.5) + theme(legend.position="top") + xlab("Average SNP VAF Z-Score") + ylab("Sample Count")
 
 b <- ggplot(all_data_table, aes(x=VAF_Z_Score, fill=pool, color=pool), bins = 90) + geom_histogram(position="identity", alpha=0.5) +
   theme(legend.position="top") + xlim(0.5,2) + xlab("Average SNP VAF Z-Score") + ylab("Sample Count")
+
+#grid.arrange(a, b, ncol=2)
 
 print(a)
 print(b)
@@ -244,27 +329,125 @@ print(max(all_data_table[which(all_data_table$pool == "tumor"),]$VAF_Z_Score))
 ##### Scatter plots showing distributions of mean heterozygous SNP VAF absolute Z-scores for normal pool 
 ```{r}
 p <- ggplot() 
-p <- p + geom_point(data = all_data_table[all_data_table$pool == "tumor",], aes(x=mean_AF, y=abs_frag_z_score,color=pool),alpha = 0.5)
-p <- p + geom_point(data = all_data_table[all_data_table$pool == "normal",], aes(x=mean_AF, y=abs_frag_z_score,color=pool),alpha = 0.5)
-p <- p + xlab("Estimated ctDNA fraction") + ylab("Mean Fragment Length Z-score")
+p <- p + geom_point(data = all_data_table[all_data_table$pool == "tumor",], aes(x=mean_AF, y=VAF_Z_Score,color=pool),alpha = 0.5)
+p <- p + geom_point(data = all_data_table[all_data_table$pool == "normal",], aes(x=mean_AF, y=VAF_Z_Score,color=pool),alpha = 0.5)
+p <- p + xlab("Estimated ctDNA fraction") + ylab("Mean VAF Z-score") + geom_hline(aes(yintercept = max(all_data_table[which(all_data_table$pool == "normal"),]$VAF_Z_Score)), color = "purple", linetype="dashed")
 print(p)
-g <- p + xlim(0,0.2) + ylim(0.1,3)
+g <- p + xlim(0,0.3) + ylim(0.7,2) + geom_vline(aes(xintercept=0.05),color = "dark green", linetype="dashed") + geom_hline(aes(yintercept = max(all_data_table[which(all_data_table$pool == "normal"),]$VAF_Z_Score)), color = "purple", linetype="dashed")
 print(g)
 ```
 
-#### Receiver operator characteristic curves for predicting samples that came from clinical cancer patient samples or normal samples with VAF Z-score
 
 ```{r}
+p <- ggplot() 
+p <- p + geom_point(data = all_data_table[all_data_table$pool == "tumor",], aes(x=mean_AF, y=q75,color=pool),alpha = 0.5)
+p <- p + geom_point(data = all_data_table[all_data_table$pool == "normal",], aes(x=mean_AF, y=q75,color=pool),alpha = 0.5)
+p <- p + xlab("Estimated ctDNA fraction") + ylab("Mean VAF Z-score")
+print(p)
+g <- p + xlim(0,0.3) + ylim(0.7,2)
+print(g)
+```
+
+```{r}
+p <- ggplot() 
+p <- p + geom_point(data = all_data_table[all_data_table$pool == "tumor",], aes(x=mean_AF, y=chrom_single_max,color=pool),alpha = 0.5)
+p <- p + geom_point(data = all_data_table[all_data_table$pool == "normal",], aes(x=mean_AF, y=chrom_single_max,color=pool),alpha = 0.5)
+p <- p + xlab("Estimated ctDNA fraction") + ylab("Mean VAF Z-score")
+print(p)
+g <- p + xlim(0,0.3) + ylim(0.7,2)
+print(g)
+```
+```{r}
+cor.test(all_data_table$chrom_single_max, all_data_table$mean_AF)
+cor.test(all_data_table$chrom_double_max, all_data_table$mean_AF)
+cor.test(all_data_table$chrom_triple_max, all_data_table$mean_AF)
+cor.test(all_data_table$VAF_Z_Score, all_data_table$mean_AF)
+```
+
+
+```{r}
+p <- ggplot() 
+p <- p + geom_point(data = all_data_table[all_data_table$pool == "tumor",], aes(x=mean_AF, y=chrom_double_max,color=pool),alpha = 0.5)
+p <- p + geom_point(data = all_data_table[all_data_table$pool == "normal",], aes(x=mean_AF, y=chrom_double_max,color=pool),alpha = 0.5)
+p <- p + xlab("Estimated ctDNA fraction") + ylab("Mean VAF Z-score")
+print(p)
+g <- p + xlim(0,0.3) + ylim(0.7,2)
+print(g)
+
+```
+
+```{r}
+p <- ggplot() 
+p <- p + geom_point(data = all_data_table[all_data_table$pool == "tumor",], aes(x=mean_AF, y=chrom_triple_max,color=pool),alpha = 0.5)
+p <- p + geom_point(data = all_data_table[all_data_table$pool == "normal",], aes(x=mean_AF, y=chrom_triple_max,color=pool),alpha = 0.5)
+p <- p + xlab("Estimated ctDNA fraction") + ylab("Mean VAF Z-score") + geom_hline(aes(yintercept = max(all_data_table[which(all_data_table$pool == "normal"),]$chrom_triple_max)), color = "purple", linetype="dashed")
+print(p)
+g <- p + xlim(0,0.3) + ylim(0.8,2) + geom_vline(aes(xintercept=0.05),color = "dark green", linetype="dashed") + geom_hline(aes(yintercept = max(all_data_table[which(all_data_table$pool == "normal"),]$chrom_triple_max)), color = "purple", linetype="dashed")
+print(g)
+```
+
+
+#### Density plot for average genome-wide VAF Z-scores
+```{r}
+density_normal <- data.frame(samples = rep("normal", nrow(all_data_table[which(all_data_table$pool == "normal"),])),VAF_Z_Score = all_data_table[which(all_data_table$pool == "normal"),]$VAF_Z_Score)
+density_0 <- data.frame(samples = rep("ctDNA = 0", nrow(all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF == 0),])),VAF_Z_Score = all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF == 0),]$VAF_Z_Score)
+density_all <- data.frame(samples = rep("All tumor", nrow(all_data_table[which(all_data_table$pool == "tumor"),])),VAF_Z_Score = all_data_table[which(all_data_table$pool == "tumor"),]$VAF_Z_Score)
+density_above_0 <- data.frame(samples = rep("ctDNA > 0", nrow(all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF > 0),])),VAF_Z_Score = all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF > 0),]$VAF_Z_Score)
+density_above_0.05 <- data.frame(samples = rep("ctDNA > 0.05", nrow(all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF > 0.05),])),VAF_Z_Score = all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF > 0.05),]$VAF_Z_Score)
+density_df <- rbind(density_normal, density_all, density_0, density_above_0, density_above_0.05)
+density_df
+p <- ggplot(density_df, aes(x=VAF_Z_Score, color = samples)) + geom_density() + xlim(0.5,2)
+p
+```
+
+#### Receiver operator characteristic curves for predicting samples that came from clinical cancer patient samples or normal samples with VAF Z-score
+```{r}
+print("roc_df_0")
+roc_df_0 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF == 0),], "VAF")
 print("roc_df_full")
 roc_df_full <- ROC_curve_function(all_data_table, "VAF")
 print("roc_df_above_0")
 roc_df_above_0 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0 | all_data_table$pool == "normal"),], "VAF")
 print("roc_df_above_05")
 roc_df_above_05 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0.05 | all_data_table$pool == "normal"),], "VAF")
+roc_df_0$samples <- rep("ctDNA = 0", nrow(roc_df_0))
 roc_df_full$samples <- rep("All",nrow(roc_df_full))
 roc_df_above_0$samples <- rep("Above 0.0 ctDNA",nrow(roc_df_above_0))
 roc_df_above_05$samples <- rep("Above 0.05 ctDNA",nrow(roc_df_above_05))
-roc_df <- rbind(roc_df_full,roc_df_above_0,roc_df_above_05)
+roc_df <- rbind(roc_df_0,roc_df_full,roc_df_above_0,roc_df_above_05)
+ROC_curve<-ggplot(roc_df, aes(x=False_positive_rate, y=True_positive_rate, color = samples)) + geom_path() + ylim(0,1) + geom_abline(intercept = 0, slope = 1) + xlab("1 - Specificity") + ylab("Sensitivity") + labs(color = "Samples Included")
+print(ROC_curve)
+```
+
+
+
+
+```{r}
+density_normal <- data.frame(samples = rep("normal", nrow(all_data_table[which(all_data_table$pool == "normal"),])),chrom_triple_max = all_data_table[which(all_data_table$pool == "normal"),]$chrom_triple_max)
+density_0 <- data.frame(samples = rep("ctDNA = 0", nrow(all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF == 0),])),chrom_triple_max = all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF == 0),]$chrom_triple_max)
+density_all <- data.frame(samples = rep("All tumor", nrow(all_data_table[which(all_data_table$pool == "tumor"),])),chrom_triple_max = all_data_table[which(all_data_table$pool == "tumor"),]$chrom_triple_max)
+density_above_0 <- data.frame(samples = rep("ctDNA > 0", nrow(all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF > 0),])),chrom_triple_max = all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF > 0),]$chrom_triple_max)
+density_above_0.05 <- data.frame(samples = rep("ctDNA > 0.05", nrow(all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF > 0.05),])),chrom_triple_max = all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF > 0.05),]$chrom_triple_max)
+density_df <- rbind(density_normal, density_all, density_0, density_above_0, density_above_0.05)
+density_df
+p <- ggplot(density_df, aes(x=chrom_triple_max, color = samples)) + geom_density() + xlim(0.7,2)
+p
+```
+
+```{r}
+print("roc_df_0")
+roc_df_0 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF == 0),], "top_3")
+print("roc_df_full")
+roc_df_full <- ROC_curve_function(all_data_table, "top_3")
+print("roc_df_above_0")
+roc_df_above_0 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0 | all_data_table$pool == "normal"),], "top_3")
+print("roc_df_above_05")
+roc_df_above_05 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0.05 | all_data_table$pool == "normal"),], "top_3")
+roc_df_0$samples <- rep("ctDNA = 0", nrow(roc_df_0))
+roc_df_full$samples <- rep("All",nrow(roc_df_full))
+roc_df_above_0$samples <- rep("Above 0.0 ctDNA",nrow(roc_df_above_0))
+roc_df_above_05$samples <- rep("Above 0.05 ctDNA",nrow(roc_df_above_05))
+roc_df <- rbind(roc_df_0,roc_df_full,roc_df_above_0,roc_df_above_05)
 ROC_curve<-ggplot(roc_df, aes(x=False_positive_rate, y=True_positive_rate, color = samples)) + geom_path() + ylim(0,1) + geom_abline(intercept = 0, slope = 1) + xlab("1 - Specificity") + ylab("Sensitivity") + labs(color = "Samples Included")
 print(ROC_curve)
 ```
@@ -306,24 +489,41 @@ print(max(all_data_table[which(all_data_table$pool == "tumor"),]$abs_frag_z_scor
 p <- ggplot() 
 p <- p + geom_point(data = clin_total_table[clin_total_table$pool == "tumor",], aes(x=mean_AF, y=abs_frag_z_score,color=pool),alpha = 0.5)
 p <- p + geom_point(data = clin_total_table[clin_total_table$pool == "normal",], aes(x=mean_AF, y=abs_frag_z_score,color=pool),alpha = 0.5)
-p <- p + xlab("Estimated ctDNA fraction") + ylab("Mean Fragment Length Z-score")
+p <- p + xlab("Estimated ctDNA fraction") + ylab("Mean Fragment Length Z-score") + geom_hline(aes(yintercept = max(all_data_table[which(all_data_table$pool == "normal"),]$abs_frag_z_score)), color = "purple", linetype="dashed")
 print(p)
-g <- p + xlim(0,0.2) + ylim(0.1,3)
+g <- p + xlim(0,0.2) + ylim(0.1,3)  + geom_vline(aes(xintercept=0.05),color = "dark green", linetype="dashed") + geom_hline(aes(yintercept = max(all_data_table[which(all_data_table$pool == "normal"),]$abs_frag_z_score)), color = "purple", linetype="dashed")
 print(g)
 ```
 
+#### Density plot for Frag Length Z-scores
+```{r}
+
+density_normal <- data.frame(samples = rep("normal", nrow(all_data_table[which(all_data_table$pool == "normal"),])),abs_frag_z_score = all_data_table[which(all_data_table$pool == "normal"),]$abs_frag_z_score)
+density_0 <- data.frame(samples = rep("ctDNA = 0", nrow(all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF == 0),])),abs_frag_z_score = all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF == 0),]$abs_frag_z_score)
+density_all <- data.frame(samples = rep("All tumor", nrow(all_data_table[which(all_data_table$pool == "tumor"),])),abs_frag_z_score = all_data_table[which(all_data_table$pool == "tumor"),]$abs_frag_z_score)
+density_above_0 <- data.frame(samples = rep("ctDNA > 0", nrow(all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF > 0),])),abs_frag_z_score = all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF > 0),]$abs_frag_z_score)
+density_above_0.05 <- data.frame(samples = rep("ctDNA > 0.05", nrow(all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF > 0.05),])),abs_frag_z_score = all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF > 0.05),]$abs_frag_z_score)
+density_df <- rbind(density_normal, density_all, density_0, density_above_0, density_above_0.05)
+density_df
+p <- ggplot(density_df, aes(x=abs_frag_z_score, color = samples)) + geom_density() + xlim(0,4)
+p
+
+```
 #### ROC curves for classifying samples as clinical cancer patient samples or normal samples 
 ```{r}
+print("roc_df_0")
+roc_df_0 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF == 0),], "fragment_length")
 print("roc_df_full")
 roc_df_full <- ROC_curve_function(all_data_table, "fragment_length")
 print("roc_df_above_0")
 roc_df_above_0 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0 | all_data_table$pool == "normal"),], "fragment_length")
 print("roc_df_above_05")
 roc_df_above_05 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0.05 | all_data_table$pool == "normal"),], "fragment_length")
+roc_df_0$samples <- rep("ctDNA = 0", nrow(roc_df_0))
 roc_df_full$samples <- rep("All",nrow(roc_df_full))
 roc_df_above_0$samples <- rep("Above 0.0 ctDNA",nrow(roc_df_above_0))
 roc_df_above_05$samples <- rep("Above 0.05 ctDNA",nrow(roc_df_above_05))
-roc_df <- rbind(roc_df_full,roc_df_above_0,roc_df_above_05)
+roc_df <- rbind(roc_df_0,roc_df_full,roc_df_above_0,roc_df_above_05)
 ROC_curve<-ggplot(roc_df, aes(x=False_positive_rate, y=True_positive_rate, color = samples)) + geom_path() + ylim(0,1) + geom_abline(intercept = 0, slope = 1) + xlab("1 - Specificity") + ylab("Sensitivity") + labs(color = "Samples Included")
 print(ROC_curve)
 ```
@@ -351,16 +551,19 @@ print(f)
 
 #### ROC curves for classifying samples as clinical cancer patient samples or normal samples (n = 47) using both VAF Z-score and fragment length Z-score
 ```{r}
+print("roc_df_0")
+roc_df_0 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF == 0),], "frag_with_VAF_cutoff")
 print("roc_df_full")
 roc_df_full <- ROC_curve_function(all_data_table, "frag_with_VAF_cutoff")
 print("roc_df_above_0")
 roc_df_above_0 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0 | all_data_table$pool == "normal"),], "frag_with_VAF_cutoff")
 print("roc_df_above_05")
 roc_df_above_05 <- ROC_curve_function(all_data_table[which(all_data_table$mean_AF > 0.05 | all_data_table$pool == "normal"),], "frag_with_VAF_cutoff")
+roc_df_0$samples <- rep("ctDNA = 0", nrow(roc_df_0))
 roc_df_full$samples <- rep("All",nrow(roc_df_full))
 roc_df_above_0$samples <- rep("Above 0.0 ctDNA",nrow(roc_df_above_0))
 roc_df_above_05$samples <- rep("Above 0.05 ctDNA",nrow(roc_df_above_05))
-roc_df <- rbind(roc_df_full,roc_df_above_0,roc_df_above_05)
+roc_df <- rbind(roc_df_0,roc_df_full,roc_df_above_0,roc_df_above_05)
 ROC_curve<-ggplot(roc_df, aes(x=False_positive_rate, y=True_positive_rate, color = samples)) + geom_path() + ylim(0,1) + geom_abline(intercept = 0, slope = 1) + xlab("1 - Specificity") + ylab("Sensitivity") + labs(color = "Samples Included")
 print(ROC_curve)
 ```
@@ -413,17 +616,67 @@ fragments_df_all <- data.frame(avg_coverage = all_avgs, pool = all_names, bin = 
 fragments_df_above_0 <- data.frame(avg_coverage = all_avgs_above_0, pool = all_names, bin = intervals)
 fragments_df_above_05 <- data.frame(avg_coverage = all_avgs_above_05, pool = all_names, bin = intervals)
 
-print(ggplot(fragments_df_all, aes(bin, avg_coverage, colour = pool)) + geom_path() + ylab("Fraction cfDNA") + xlab("Fragment Length") + ggtitle("Average Fragment Length Distributions for HiSeq Normals and Ret Tumor Samples") + xlim(100,400))
-print(ggplot(fragments_df_above_0, aes(bin, avg_coverage, colour = pool)) + geom_path() + ylab("Fraction cfDNA") + xlab("Fragment Length") + ggtitle("Average Fragment Length Distributions for HiSeq Normals and Ret Tumor Samples") + xlim(100,400))
+print(ggplot(fragments_df_all, aes(bin, avg_coverage, colour = pool)) + geom_path() + ylab("Fraction cfDNA") + xlab("Fragment Length") + ggtitle("Average Fragment Length Distributions for HiSeq Normals and Ret Tumor Samples") + xlim(0,600))
+print(ggplot(fragments_df_above_0, aes(bin, avg_coverage, colour = pool)) + geom_path() + ylab("Fraction cfDNA") + xlab("Fragment Length") + ggtitle("Average Fragment Length Distributions for HiSeq Normals and Ret Tumor Samples") + xlim(0,600))
 
-print(ggplot(fragments_df_above_05, aes(bin, avg_coverage, colour = pool)) + geom_path() + ylab("Fraction cfDNA") + xlab("Fragment Length") + ggtitle("Average Fragment Length Distributions for HiSeq Normals and Ret Tumor Samples") + xlim(100,400))
+print(ggplot(fragments_df_above_05, aes(bin, avg_coverage, colour = pool)) + geom_path() + ylab("Fraction cfDNA") + xlab("Fragment Length") + ggtitle("Average Fragment Length Distributions for HiSeq Normals and Ret Tumor Samples") + xlim(0,600))
+```
+
+```{r}
+print(ks.test(normal_avgs, clin_avgs_all))
+print(ks.test(normal_avgs, clin_avgs_above_0))
+print(ks.test(normal_avgs, clin_avgs_above_05))
+```
+
+```{r}
+
+#colnames(normal_frag_table) == colnames(clin_table_all)
+p_values <- c()
+for(i in 1:ncol(normal_frag_table)){
+  x <- normal_frag_table[,i]
+  y <- clin_table_above_05[,i]
+  v <- ks.test(x, y)
+  p_values <- c(p_values, v$p.value)
+}
+
 
 ```
+
+```{r}
+#p_values
+
+intervals_p <- seq(1,595,5)
+
+p_cutoff <- 0.05 / length(intervals_p) ##hypothesis correction
+
+abline <- -log( p_cutoff, 10)
+```
+
+```{r}
+fragments_p_values <- data.frame(p_value = p_values, bin = intervals_p)
+print(ggplot(fragments_p_values, aes(bin,-log( p_values, 10))) + geom_path() + ylab("-LOG10(p-value)") + xlab("Fragment Length") + geom_hline(yintercept = abline))
+
+
+```
+
+```{r}
+
+fragments_p_values
+
+fragments_p_values[which(fragments_p_values$p_value < p_cutoff & normal_avgs > 0.001),] ##abaove .1% for bin covg
+
+fragment_bins_to_analyze <- which(fragments_p_values$p_value < p_cutoff & normal_avgs > 0.001)
+
+##change p 
+saveRDS(fragment_bins_to_analyze, "../Gaudin_thesis_data/fragment_bins_to_analyze.rds")
+```
+
 
 #### TSNE and PCA plots showing separation between normal (red) and clinical samples (blue). 
 ###### TSNE
 ```{r}
-tsne_table_sd_scaled <- frag_table[c(normal_indices,tumor_all_indices),-c(ncol(frag_table))]
+tsne_table_sd_scaled <- frag_table[c(normal_indices,tumor_all_indices),fragment_bins_to_analyze]
+#tsne_table_sd_scaled <- frag_table[,fragment_bins_to_analyze]
 for(i in 1:ncol(tsne_table_sd_scaled)){
 min <- min(tsne_table_sd_scaled[,i])
 max <- max(tsne_table_sd_scaled[,i])
@@ -446,7 +699,7 @@ label_vector <- color_vector
 label_vector[] <- "*"
 #make TSNE
 train <- as.matrix(tsne_table_sd_scaled)
-tsne <- Rtsne(train, dims = 2, perplexity=40, verbose=FALSE, max_iter = 3000)
+tsne <- Rtsne(train, dims = 2, perplexity=30, verbose=FALSE, max_iter = 3000, check_duplicates=FALSE)
 plot(tsne$Y, t='n', main="tsne")
 text(tsne$Y, labels = label_vector, col = color_vector)
 ##may need to adjust legend position (x, y are first two parameters)
@@ -460,24 +713,22 @@ pca$status <- value_vector
 print(ggplot(pca) + geom_point(aes(PC1,PC2, fill = status, color = status)))
 ```
 
-
-#### Support Vector Machine classifier
-```{r}
-VAF_Z_table <- data.frame(sample_names = all_data_table$sample_names, pool = all_data_table$pool, mean_AF= all_data_table$mean_AF, VAF_Z_Score = all_data_table$VAF_Z_Score)
-VAF_frag_table <- merge(VAF_Z_table, frag_table[,c(c(26:31),c(35:40),c(51:75),c(ncol(frag_table)))], by="sample_names") ##frags with greatest diff between normal and tumor
-print("All normal and tumor samples")
-calclulate_mean_SVM_100(VAF_frag_table)
-print("All normal and tumor samples with ctDNA > 0")
-calclulate_mean_SVM_100(VAF_frag_table[which(VAF_frag_table$pool == "normal" | VAF_frag_table$mean_AF > 0),])
-print("All normal and tumor samples with ctDNA > 0.05")
-calclulate_mean_SVM_100(VAF_frag_table[which(VAF_frag_table$pool == "normal" | VAF_frag_table$mean_AF > 0.05),])
-```
-
 #### Logistic Regression
 ###### All samples
+
 ```{r}
-log_vf_frag_df <- data.frame(pool = all_data_table$pool, VAF_Z_Score = all_data_table$VAF_Z_Score, abs_frag_z_score = all_data_table$abs_frag_z_score)
-glm.fit <- glm(pool~ VAF_Z_Score + abs_frag_z_score, data = log_vf_frag_df, family = binomial)
+log_vf_frag_df <- data.frame(pool = all_data_table[which(all_data_table$mean_AF == 0),]$pool, VAF_Z_Score = all_data_table[which(all_data_table$mean_AF == 0),]$VAF_Z_Score, abs_frag_z_score = all_data_table[which(all_data_table$mean_AF == 0),]$abs_frag_z_score, chrom_triple_max = all_data_table[which(all_data_table$mean_AF == 0),]$chrom_triple_max)
+glm.fit <- glm(pool~ VAF_Z_Score + abs_frag_z_score + chrom_triple_max, data = log_vf_frag_df, family = binomial)
+glm.probs <- predict(glm.fit,type = "response")
+d <- roc(pool ~ glm.probs, data = log_vf_frag_df, print.auc=TRUE)
+auc(pool ~ glm.probs, data = log_vf_frag_df, print.auc=TRUE)
+ci.se(d,specificities = c(1))
+#plot(d, asp = NA, xlim=c(1, 0), ylim = c(0,1), col="purple")
+```
+
+```{r}
+log_vf_frag_df <- data.frame(pool = all_data_table$pool, VAF_Z_Score = all_data_table$VAF_Z_Score, abs_frag_z_score = all_data_table$abs_frag_z_score, chrom_triple_max = all_data_table$chrom_triple_max)
+glm.fit <- glm(pool~ VAF_Z_Score + abs_frag_z_score + chrom_triple_max, data = log_vf_frag_df, family = binomial)
 glm.probs <- predict(glm.fit,type = "response")
 e <- roc(pool ~ glm.probs, data = log_vf_frag_df, print.auc=TRUE)
 auc(pool ~ glm.probs, data = log_vf_frag_df, print.auc=TRUE)
@@ -485,8 +736,8 @@ ci.se(e,specificities = c(1))
 ```
 ###### Above 0.0
 ```{r}
-log_vf_frag_df <- data.frame(pool = all_data_table[which(all_data_table$pool == "normal" | all_data_table$mean_AF > 0.0),]$pool, VAF_Z_Score = all_data_table[which(all_data_table$pool == "normal" | all_data_table$mean_AF > 0.0),]$VAF_Z_Score, abs_frag_z_score = all_data_table[which(all_data_table$pool == "normal" | all_data_table$mean_AF > 0.0),]$abs_frag_z_score)
-glm.fit <- glm(pool~ VAF_Z_Score + abs_frag_z_score, data = log_vf_frag_df, family = binomial)
+log_vf_frag_df <- data.frame(pool = all_data_table[which(all_data_table$pool == "normal" | all_data_table$mean_AF > 0.0),]$pool, VAF_Z_Score = all_data_table[which(all_data_table$pool == "normal" | all_data_table$mean_AF > 0.0),]$VAF_Z_Score, abs_frag_z_score = all_data_table[which(all_data_table$pool == "normal" | all_data_table$mean_AF > 0.0),]$abs_frag_z_score, chrom_triple_max = all_data_table[which(all_data_table$pool == "normal" | all_data_table$mean_AF > 0.0),]$chrom_triple_max)
+glm.fit <- glm(pool~ VAF_Z_Score + abs_frag_z_score + chrom_triple_max, data = log_vf_frag_df, family = binomial)
 glm.probs <- predict(glm.fit,type = "response")
 f <- roc(pool ~ glm.probs, data = log_vf_frag_df, print.auc=TRUE)
 auc(pool ~ glm.probs, data = log_vf_frag_df, print.auc=TRUE)
@@ -494,14 +745,17 @@ ci.se(f,specificities = c(1))
 ```
 ###### Above 0.05
 ```{r}
-log_vf_frag_df <- data.frame(pool = all_data_table[which(all_data_table$pool == "normal" | all_data_table$mean_AF > 0.05),]$pool, VAF_Z_Score = all_data_table[which(all_data_table$pool == "normal" | all_data_table$mean_AF > 0.05),]$VAF_Z_Score, abs_frag_z_score = all_data_table[which(all_data_table$pool == "normal" | all_data_table$mean_AF > 0.05),]$abs_frag_z_score)
-glm.fit <- glm(pool~ VAF_Z_Score + abs_frag_z_score, data = log_vf_frag_df, family = binomial)
+log_vf_frag_df <- data.frame(pool = all_data_table[which(all_data_table$pool == "normal" | all_data_table$mean_AF > 0.05),]$pool, VAF_Z_Score = all_data_table[which(all_data_table$pool == "normal" | all_data_table$mean_AF > 0.05),]$VAF_Z_Score, abs_frag_z_score = all_data_table[which(all_data_table$pool == "normal" | all_data_table$mean_AF > 0.05),]$abs_frag_z_score, chrom_triple_max = all_data_table[which(all_data_table$pool == "normal" | all_data_table$mean_AF > 0.05),]$chrom_triple_max)
+glm.fit <- glm(pool~ VAF_Z_Score + abs_frag_z_score + chrom_triple_max, data = log_vf_frag_df, family = binomial)
 glm.probs <- predict(glm.fit,type = "response")
 g <- roc(pool ~ glm.probs, data = log_vf_frag_df, print.auc=TRUE)
 auc(pool ~ glm.probs, data = log_vf_frag_df, print.auc=TRUE)
-plot(g, asp = NA, xlim=c(1, 0), ylim = c(0,1), col="green")  
+plot(d, asp = NA, xlim=c(1, 0), ylim = c(0,1), col="purple") 
+lines(g, col="green",lty=1)
 lines(e, col="red",lty=1)
 lines(f, col="blue",lty=1)
-legend(0.4,0.3,legend=c("all samples","ctDNA above 0","ctDNA above 0.05"), col=c("red","blue","green"), lty = 1)
+legend(0.4,0.4,legend=c("ctDNA = 0", "all samples","ctDNA above 0","ctDNA above 0.05"), col=c("purple","red","blue","green"), lty = 1)
 ci.se(g,specificities = c(1))
 ```
+
+

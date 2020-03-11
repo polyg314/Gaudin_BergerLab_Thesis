@@ -101,6 +101,15 @@ VAF_Z_Score_analysis <- function(normal_table, tumor_table, minimum_coverage, mi
   standard_devs <- c()
   index <- c()
   het_counts <- c()
+  standard_devs_NA <- c() #not absolute
+  qmin <- c()
+  q25 <- c()
+  q50 <- c()
+  q75 <- c()
+  qmax <- c()
+  chrom_single_max <- c()
+  chrom_double_max <- c()
+  chrom_triple_max <- c()
   for(i in 3:ncol(coverage_filtered_normal_table)){
     index <- c(index,i)
     current_test <- coverage_filtered_normal_table[,1:2]
@@ -108,8 +117,32 @@ VAF_Z_Score_analysis <- function(normal_table, tumor_table, minimum_coverage, mi
     current_pool <- coverage_filtered_normal_table[,-c(i)] ##remove current normal sample
     current_test <- condense.tumor(current_test, min_alt_freq_t, max_alt_freq_t)
     sample_v_normal_pool_table <- het.analysis.table(current_test, current_pool, min_normal_hets, min_alt_freq_n, max_alt_freq_n)
+    #print(sample_v_normal_pool_table)
+    sample_v_normal_pool_table <- sample_v_normal_pool_table[which(sample_v_normal_pool_table$normal_mean > 25 & sample_v_normal_pool_table$normal_mean < 75),]
+    #print(sample_v_normal_pool_table)
     standard_devs <- c(standard_devs,sum(abs(sample_v_normal_pool_table$tdev_from_n))/nrow(sample_v_normal_pool_table))
+    standard_devs_NA <- c(standard_devs_NA,sum(sample_v_normal_pool_table$tdev_from_n)/nrow(sample_v_normal_pool_table)) 
     het_counts <- c(het_counts, nrow(sample_v_normal_pool_table))
+    x <- quantile(abs(sample_v_normal_pool_table$tdev_from_n))
+    qmin <- c(qmin, x[1])
+    q25 <- c(q25, x[2])
+    q50 <- c(q50, x[3])
+    q75 <- c(q75, x[4])
+    qmax <- c(qmax, x[5])
+    chrom_zs <- c()
+    for(i in 1:23){
+      current_s_v_n <- sample_v_normal_pool_table[which(sample_v_normal_pool_table$Chromosome == i),]
+      if(nrow(current_s_v_n) > 5){
+        chrom_zs <- c(chrom_zs, sum(abs(current_s_v_n$tdev_from_n))/nrow(current_s_v_n))
+      }else{
+        chrom_zs <- c(chrom_zs, 1)
+      }
+    }
+    n <- length(chrom_zs)
+    chrom_zs <- sort(chrom_zs,partial=n-1)
+    chrom_single_max <- c(chrom_single_max, chrom_zs[n])
+    chrom_double_max <- c(chrom_double_max, mean(c(chrom_zs[n], chrom_zs[n-1])))
+    chrom_triple_max <- c(chrom_triple_max, mean(c(chrom_zs[n], chrom_zs[n-1], chrom_zs[n-2])))
   }
   for(i in 3:ncol(coverage_filtered_tumor_table)){
     index <- c(index,i)
@@ -117,11 +150,33 @@ VAF_Z_Score_analysis <- function(normal_table, tumor_table, minimum_coverage, mi
     current_test$Ref <- coverage_filtered_tumor_table[,i]
     current_test <- condense.tumor(current_test, min_alt_freq_t, max_alt_freq_t)
     sample_v_normal_pool_table <- het.analysis.table(current_test, coverage_filtered_normal_table, min_normal_hets, min_alt_freq_n, max_alt_freq_n)
+    sample_v_normal_pool_table <- sample_v_normal_pool_table[which(sample_v_normal_pool_table$normal_mean > 25 & sample_v_normal_pool_table$normal_mean < 75),]
     standard_devs <- c(standard_devs,sum(abs(sample_v_normal_pool_table$tdev_from_n))/nrow(sample_v_normal_pool_table))
+    standard_devs_NA <- c(standard_devs_NA,sum(sample_v_normal_pool_table$tdev_from_n)/nrow(sample_v_normal_pool_table)) 
     het_counts <- c(het_counts, nrow(sample_v_normal_pool_table))
+    x <- quantile(abs(sample_v_normal_pool_table$tdev_from_n))
+    qmin <- c(qmin, x[1])
+    q25 <- c(q25, x[2])
+    q50 <- c(q50, x[3])
+    q75 <- c(q75, x[4])
+    qmax <- c(qmax, x[5])
+    chrom_zs <- c()
+    for(i in 1:23){
+      current_s_v_n <- sample_v_normal_pool_table[which(sample_v_normal_pool_table$Chromosome == i),]
+      if(nrow(current_s_v_n) > 5){
+        chrom_zs <- c(chrom_zs, sum(abs(current_s_v_n$tdev_from_n))/nrow(current_s_v_n))
+      }else{
+        chrom_zs <- c(chrom_zs, 1)
+      }
+    }
+    n <- length(chrom_zs)
+    chrom_zs <- sort(chrom_zs,partial=n-1)
+    chrom_single_max <- c(chrom_single_max, chrom_zs[n])
+    chrom_double_max <- c(chrom_double_max, mean(c(chrom_zs[n], chrom_zs[n-1])))
+    chrom_triple_max <- c(chrom_triple_max, mean(c(chrom_zs[n], chrom_zs[n-1], chrom_zs[n-2])))
   }
   normal_tumor_seq <- c(rep("normal", number_normal_samples), rep("tumor", number_tumor_samples))
-  Z_score_df <- data.frame(pool = normal_tumor_seq, index = index, sample_names = normal_and_tumor_names, VAF_Z_Score = standard_devs, number_of_hets_avgd = het_counts)
+  Z_score_df <- data.frame(pool = normal_tumor_seq, index = index, sample_names = normal_and_tumor_names, VAF_Z_Score = standard_devs, number_of_hets_avgd = het_counts, VAF_Z_NA = standard_devs_NA, chrom_single_max = chrom_single_max, chrom_double_max = chrom_double_max, chrom_triple_max = chrom_triple_max, qmin = qmin, q25 = q25, q50 = q50, q75 = q75, qmax = qmax)
   return(Z_score_df)
 }
 
@@ -178,6 +233,7 @@ gene_specific_tables <- function(gene_table, tumor_tables, normal_tables, tumor_
       }
       else{
         sample_v_normal_pool_table <- het.analysis.table(current_test, current_gene_normal_table, min_normal_hets, min_alt_freq_n, max_alt_freq_n)
+        sample_v_normal_pool_table <- sample_v_normal_pool_table[which(sample_v_normal_pool_table$normal_mean > 25 & sample_v_normal_pool_table$normal_mean < 75),]
         if(nrow(sample_v_normal_pool_table) > 0){
           avg_abs_z <- sum(abs(sample_v_normal_pool_table$tdev_from_n))/nrow(sample_v_normal_pool_table)
           number_hets <- nrow(sample_v_normal_pool_table)
@@ -272,6 +328,7 @@ ROC_curve_function <- function(sd_df, Z_score){
   tumor_df <- sd_df[which(sd_df$pool =="tumor"),]
   max_normal_vaf_z <- max(normal_df$VAF_Z_Score)
   max_normal_frag_z <- max(normal_df$abs_frag_z_score)
+  triple_max_normal_vaf_z <- max(normal_df$chrom_triple_max)
   if(Z_score == "VAF"){
     sd_df$sd_from_normals <- sd_df$VAF_Z_Score
     print("ctDNA flagged positive at 100% specificity")
@@ -282,6 +339,18 @@ ROC_curve_function <- function(sd_df, Z_score){
     print(sum(tumor_df$VAF_Z_Score > max_normal_vaf_z))
     print("Sensitivity")
     print(sum(tumor_df$VAF_Z_Score > max_normal_vaf_z)/length(tumor_df$VAF_Z_Score))
+  }
+  else if(Z_score == "top_3"){
+    triple_max_normal_vaf_z <- max(normal_df$chrom_triple_max)
+    sd_df$sd_from_normals <- sd_df$chrom_triple_max
+    print("ctDNA flagged positive at 100% specificity")
+    sum(tumor_df$chrom_triple_max > triple_max_normal_vaf_z)
+    print("Number of tumor samples")
+    print(length(tumor_df$chrom_triple_max))
+    print("Number of tumor samples above max normal vaf z")
+    print(sum(tumor_df$chrom_triple_max > triple_max_normal_vaf_z))
+    print("Sensitivity")
+    print(sum(tumor_df$chrom_triple_max > triple_max_normal_vaf_z)/length(tumor_df$chrom_triple_max))
   }
   else if(Z_score == "fragment_length"){
     sd_df$sd_from_normals <- sd_df$abs_frag_z_score
@@ -297,13 +366,13 @@ ROC_curve_function <- function(sd_df, Z_score){
   else if(Z_score == "frag_with_VAF_cutoff"){
     sd_df$sd_from_normals <- sd_df$abs_frag_z_score
     print("ctDNA flagged positive at 100% specificity")
-    sum(tumor_df$abs_frag_z_score > max_normal_frag_z | tumor_df$VAF_Z_Score > max_normal_vaf_z )
+    sum(tumor_df$abs_frag_z_score > max_normal_frag_z | tumor_df$VAF_Z_Score > max_normal_vaf_z | tumor_df$chrom_triple_max > triple_max_normal_vaf_z)
     print("Number of tumor samples")
     print(length(tumor_df$abs_frag_z_score))
     print("Number of tumor samples above max frag z or max VAF frag z")
-    print(sum(tumor_df$abs_frag_z_score > max_normal_frag_z | tumor_df$VAF_Z_Score > max_normal_vaf_z))
+    print(sum(tumor_df$abs_frag_z_score > max_normal_frag_z | tumor_df$VAF_Z_Score > max_normal_vaf_z | tumor_df$chrom_triple_max > triple_max_normal_vaf_z))
     print("Sensitivity")
-    print(sum(tumor_df$abs_frag_z_score > max_normal_frag_z | tumor_df$VAF_Z_Score > max_normal_vaf_z)/length(tumor_df$VAF_Z_Score))
+    print(sum(tumor_df$abs_frag_z_score > max_normal_frag_z | tumor_df$VAF_Z_Score > max_normal_vaf_z | tumor_df$chrom_triple_max > triple_max_normal_vaf_z)/length(tumor_df$VAF_Z_Score))
   }
   labels_vector <- as.character(sd_df$pool)
   labels_vector[which(labels_vector == "tumor")] <- "1"
@@ -319,7 +388,7 @@ ROC_curve_function <- function(sd_df, Z_score){
     predictions_vector <- c()
     for(j in 1:nrow(sd_df)){
       if(Z_score == "frag_with_VAF_cutoff"){
-        if(sd_df$VAF_Z_Score[j] > max_normal_vaf_z){
+        if(sd_df$VAF_Z_Score[j] > max_normal_vaf_z | sd_df$chrom_triple_max[j] > triple_max_normal_vaf_z){
           predictions_vector <- c(predictions_vector, 1)
         }
        else if(sd_df$sd_from_normals[j] < current_cuttoff){
@@ -384,96 +453,4 @@ print_ROC_AUC <- function(roc_df){
   AUC <- sum(roc_df$True_positive_rate * horizontal_distance)
   print("AUC")
   print(AUC)
-}
-
-calclulate_mean_SVM_100 <- function(VAF_frag_table){
-  SD_and_frags_table <- VAF_frag_table[,c(4:ncol(VAF_frag_table),c(2))]
-  SD_and_frags_table$pool <- as.character(SD_and_frags_table$pool)
-  SD_and_frags_table$pool[which(SD_and_frags_table$pool == "tumor")] <- "1"
-  SD_and_frags_table$pool[which(SD_and_frags_table$pool == "normal")] <- "0"
-  SD_and_frags_table$pool <- as.factor(SD_and_frags_table$pool)
-  SD_and_frags_table
-  last_col <- ncol(SD_and_frags_table)
-  number_of_samples <- nrow(SD_and_frags_table)
-  interval <- round(number_of_samples/4)
-  true_neg <- 0
-  false_neg <- 0
-  false_pos <- 0
-  true_pos <- 0
-  for(i in 1:100){
-    random_test_train_seq <- sample(c(1:number_of_samples), size = number_of_samples)
-    training_set_1 <- SD_and_frags_table[-random_test_train_seq[1:interval],]
-    test_set_1 <- SD_and_frags_table[random_test_train_seq[1:interval],]
-    training_set_2 <- SD_and_frags_table[-random_test_train_seq[(interval + 1):(interval*2)],]
-    test_set_2 <- SD_and_frags_table[random_test_train_seq[(interval + 1):(interval*2)],]
-    training_set_3 <- SD_and_frags_table[-random_test_train_seq[((interval*2) + 1):(interval*3)],]
-    test_set_3 <- SD_and_frags_table[random_test_train_seq[((interval*2) + 1):(interval*3)],]
-    training_set_4 <- SD_and_frags_table[-random_test_train_seq[((interval*3) + 1):number_of_samples],]
-    test_set_4 <- SD_and_frags_table[random_test_train_seq[((interval*3) + 1):number_of_samples],]
-    training_set_1[-last_col] = scale(training_set_1[-last_col]) 
-    test_set_1[-last_col] = scale(test_set_1[-last_col]) 
-    classifier = svm(formula = pool ~ ., 
-                     data = training_set_1, 
-                     type = 'C-classification', 
-                     kernel = 'linear')
-    
-    y_pred = predict(classifier, newdata = test_set_1[-ncol(test_set_1)])
-    cm = table(test_set_1[,last_col], y_pred) 
-    true_neg <- true_neg + cm[[1]]
-    false_neg <- false_neg + cm[[2]]
-    false_pos <- false_pos + cm[[3]]
-    true_pos <- true_pos + cm[[4]]
-    training_set_2[-last_col] = scale(training_set_2[-last_col]) 
-    test_set_2[-last_col] = scale(test_set_2[-last_col]) 
-    classifier = svm(formula = pool ~ ., 
-                     data = training_set_2, 
-                     type = 'C-classification', 
-                     kernel = 'linear')
-    y_pred = predict(classifier, newdata = test_set_2[-ncol(test_set_2)])
-    cm = table(test_set_2[,last_col], y_pred) 
-    true_neg <- true_neg + cm[[1]]
-    false_neg <- false_neg + cm[[2]]
-    false_pos <- false_pos + cm[[3]]
-    true_pos <- true_pos + cm[[4]]
-    training_set_3[-last_col] = scale(training_set_3[-last_col]) 
-    test_set_3[-last_col] = scale(test_set_3[-last_col]) 
-    classifier = svm(formula = pool ~ ., 
-                     data = training_set_3, 
-                     type = 'C-classification', 
-                     kernel = 'linear')
-    y_pred = predict(classifier, newdata = test_set_3[-ncol(test_set_3)])
-    cm = table(test_set_3[,last_col], y_pred) 
-    true_neg <- true_neg + cm[[1]]
-    false_neg <- false_neg + cm[[2]]
-    false_pos <- false_pos + cm[[3]]
-    true_pos <- true_pos + cm[[4]]
-    training_set_4[-last_col] = scale(training_set_4[-last_col]) 
-    test_set_4[-last_col] = scale(test_set_4[-last_col]) 
-    #training_set_4
-    #test_set_4
-    classifier = svm(formula = pool ~ ., 
-                     data = training_set_4, 
-                     type = 'C-classification', 
-                     kernel = 'linear')
-    
-    y_pred = predict(classifier, newdata = test_set_4[-ncol(test_set_4)])
-    #y_pred
-    cm = table(test_set_4[,last_col], y_pred) 
-    true_neg <- true_neg + cm[[1]]
-    false_neg <- false_neg + cm[[2]]
-    false_pos <- false_pos + cm[[3]]
-    true_pos <- true_pos + cm[[4]]
-  }
-  true_neg <- true_neg/100
-  false_neg <- false_neg/100
-  false_pos <- false_pos/100
-  true_pos <- true_pos/100
-  print("true_neg")
-  print(true_neg)
-  print("false_neg")
-  print(false_neg)
-  print("false_pos")
-  print(false_pos)
-  print("true_pos")
-  print(true_pos)
 }
