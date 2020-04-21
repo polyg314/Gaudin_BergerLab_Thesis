@@ -439,7 +439,7 @@ density_all <- data.frame(samples = rep("All tumor", nrow(all_data_table[which(a
 density_above_0 <- data.frame(samples = rep("ctDNA > 0", nrow(all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF > 0),])),chrom_triple_max = all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF > 0),]$chrom_triple_max)
 density_above_0.05 <- data.frame(samples = rep("ctDNA > 0.05", nrow(all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF > 0.05),])),chrom_triple_max = all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF > 0.05),]$chrom_triple_max)
 density_df <- rbind(density_normal, density_all, density_0, density_above_0, density_above_0.05)
-density_df
+#density_df
 p <- ggplot(density_df, aes(x=chrom_triple_max, color = samples)) + geom_density() + xlim(0.7,2) + xlab("Mean VAF Z-score for 3 Chromosomes with highest Z-scores ") + scale_color_manual(values=c("tan4", "turquoise3", "mediumorchid2", "lightcoral","yellowgreen"))
 p
 ```
@@ -519,7 +519,7 @@ density_all <- data.frame(samples = rep("All tumor", nrow(all_data_table[which(a
 density_above_0 <- data.frame(samples = rep("ctDNA > 0", nrow(all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF > 0),])),abs_frag_z_score = all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF > 0),]$abs_frag_z_score)
 density_above_0.05 <- data.frame(samples = rep("ctDNA > 0.05", nrow(all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF > 0.05),])),abs_frag_z_score = all_data_table[which(all_data_table$pool == "tumor" & all_data_table$mean_AF > 0.05),]$abs_frag_z_score)
 density_df <- rbind(density_normal, density_all, density_0, density_above_0, density_above_0.05)
-density_df
+#density_df
 p <- ggplot(density_df, aes(x=abs_frag_z_score, color = samples)) + geom_density() + xlim(0,4) + scale_color_manual(values=c("tan4", "turquoise3", "mediumorchid2", "lightcoral","yellowgreen")) + xlab("Fragment Length Z-score")
 p
 
@@ -689,9 +689,9 @@ print(ggplot(fragments_p_values, aes(bin,-log( p_values, 10))) + geom_path() + y
 
 ```{r}
 
-fragments_p_values
+#fragments_p_values
 
-fragments_p_values[which(fragments_p_values$p_value < p_cutoff & normal_avgs > 0.001),] ##abaove .1% for bin covg
+#fragments_p_values[which(fragments_p_values$p_value < p_cutoff & normal_avgs > 0.001),] ##abaove .1% for bin covg
 
 fragment_bins_to_analyze <- which(fragments_p_values$p_value < p_cutoff & normal_avgs > 0.001)
 
